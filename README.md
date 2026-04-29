@@ -11,6 +11,7 @@ A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder contai
 | Skill | What it does |
 |---|---|
 | [`claude-rich-statusline`](./claude-rich-statusline/) | Installs a feature-rich Claude Code status line showing context window %, 5h + weekly rate-limit consumption with reset countdowns, session duration, model, and git branch. |
+| [`release-claude-limits-gh`](./release-claude-limits-gh/) | Cuts and publishes a new GitHub release of [`FeiXu-1131372/claude-limits`](https://github.com/FeiXu-1131372/claude-limits) from `main`: bumps the version files, commits, tags, pre-creates the release record so the CI workflow appends bundle assets, and watches the build. Specific to that repo — copy & adapt for your own Tauri release flow. |
 
 ## Installing a skill
 
