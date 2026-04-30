@@ -74,9 +74,12 @@ The block to add (or merge):
 ```json
 "statusLine": {
   "type": "command",
-  "command": "bash ~/.claude/statusline.sh"
+  "command": "bash ~/.claude/statusline.sh",
+  "refreshInterval": 60
 }
 ```
+
+`refreshInterval` (seconds) re-runs the script on a wall-clock cadence in addition to Claude Code's event-driven updates. Without it the script only re-runs on events (turn end, tool use), so the rate-limit countdowns and session timer freeze between turns. 60s is enough for the minute-granularity countdowns to stay visibly fresh.
 
 If `~/.claude/settings.json` doesn't exist, create it with just `{"statusLine": {...}}`.
 
@@ -124,8 +127,8 @@ Find the `line=` assignments. The very first line of output is `"📊 Context: $
 **Add the rate-limit reset as wall-clock time instead of countdown**
 Replace `fmt_countdown $(( five_reset - now ))` with `date -r $five_reset +%H:%M` (macOS) or `date -d @$five_reset +%H:%M` (Linux).
 
-**Faster refresh**
-Add `"refreshInterval": 1000` (milliseconds) inside the `statusLine` block in settings.json. Default is debounced after activity; this forces a wall-clock cadence so countdowns tick visibly.
+**Faster (or slower) refresh**
+The install sets `refreshInterval: 60` (seconds — schema minimum is 1, not milliseconds). Drop to `5` for snappier ticking or raise to `300` to spawn fewer subprocesses. Setting it too high (or omitting it) means the countdowns and session timer only update when Claude Code triggers an event, which is what most users perceive as "frozen".
 
 **Show a warning color when close to a limit**
 Wrap the segments in ANSI escape codes when `five_int -ge 80`. Example:
