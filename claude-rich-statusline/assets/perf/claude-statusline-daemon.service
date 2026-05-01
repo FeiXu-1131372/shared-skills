@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude Code statusline background recomputation
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/.claude/statusline-daemon.sh
+Restart=on-failure
+RestartSec=5
+# Keep the daemon visible to journalctl --user -u claude-statusline-daemon.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

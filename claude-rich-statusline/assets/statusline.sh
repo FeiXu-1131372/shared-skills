@@ -1,7 +1,9 @@
 #!/bin/bash
-# Claude Code statusline.
-# Reads JSON from stdin, prints one line:
-#   📊 Context: 42% (85k/200k) | 5h: 23% (4h12m) | 7d: 41% (3d) | Session: 2h | Model: Opus 4.7 | Branch: main
+# Claude Code statusline — bash / macOS / Linux.
+# Reads JSON from stdin, prints one colored line:
+#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Session: 6m │ Model: Opus 4.7 │ Branch: main
+# Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
+# Requires a terminal with 24-bit color (any modern macOS/Linux terminal qualifies).
 
 set -eu
 
@@ -31,6 +33,27 @@ fmt_k() {
 }
 used_k=$(fmt_k "$tokens_used")
 total_k=$(fmt_k "$ctx_size")
+
+# Render a 10-cell bar with half-cell ▓ resolution. Color is a smooth truecolor
+# gradient from green (0%) → yellow (50%) → red (100%).
+render_bar() {
+  local pct=$1
+  awk -v p="$pct" 'BEGIN {
+    cells=10;
+    full=int(p/10);
+    rem=p - full*10;
+    half=(rem >= 5 && full < cells) ? 1 : 0;
+    if (p < 0) p=0; if (p > 100) p=100;
+    if (p <= 50) { r=int(p/50*255+0.5); g=255 }
+    else         { r=255; g=int((100-p)/50*255+0.5) }
+    b=0;
+    out="";
+    for (i=0; i<full; i++) out=out "█";
+    if (half) { out=out "▓"; full++ }
+    for (i=full; i<cells; i++) out=out "░";
+    printf "\033[38;2;%d;%d;%dm%s\033[0m", r, g, b, out;
+  }'
+}
 
 # Format a duration in seconds as "Xd", "XhYm", or "Xm" — picks the coarsest
 # useful unit so a 4-day countdown shows "4d" not "96h".
@@ -75,38 +98,41 @@ else
 fi
 
 branch=""
-if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
-  branch=$(git -C "$cwd" branch --show-current 2>/dev/null)
+if git -C "$cwd" --no-optional-locks rev-parse --git-dir >/dev/null 2>&1; then
+  branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null || true)
 fi
 
-line="📊 Context: ${pct_int}% (${used_k}/${total_k})"
+ctx_bar=$(render_bar "$pct_int")
+line="📊 Context: ${ctx_bar} ${pct_int}% (${used_k}/${total_k})"
 
 # 5-hour rate limit. Skip silently if Claude Code didn't supply it.
 if [ -n "${five_pct:-}" ]; then
   five_int=$(awk -v p="$five_pct" 'BEGIN { printf "%.0f", p }')
+  five_bar=$(render_bar "$five_int")
   if [ -n "${five_reset:-}" ]; then
     five_in=$(fmt_countdown $(( five_reset - now )))
-    line="${line} | 5h: ${five_int}% (${five_in})"
+    line="${line} │ 5h: ${five_bar} ${five_int}% (${five_in})"
   else
-    line="${line} | 5h: ${five_int}%"
+    line="${line} │ 5h: ${five_bar} ${five_int}%"
   fi
 fi
 
 # 7-day rate limit.
 if [ -n "${seven_pct:-}" ]; then
   seven_int=$(awk -v p="$seven_pct" 'BEGIN { printf "%.0f", p }')
+  seven_bar=$(render_bar "$seven_int")
   if [ -n "${seven_reset:-}" ]; then
     seven_in=$(fmt_countdown $(( seven_reset - now )))
-    line="${line} | 7d: ${seven_int}% (${seven_in})"
+    line="${line} │ 7d: ${seven_bar} ${seven_int}% (${seven_in})"
   else
-    line="${line} | 7d: ${seven_int}%"
+    line="${line} │ 7d: ${seven_bar} ${seven_int}%"
   fi
 fi
 
-line="${line} | Session: ${session} | Model: ${model}"
+line="${line} │ Session: ${session} │ Model: ${model}"
 
 if [ -n "$branch" ]; then
-  line="${line} | Branch: ${branch}"
+  line="${line} │ Branch: ${branch}"
 fi
 
 printf '%s' "$line"
