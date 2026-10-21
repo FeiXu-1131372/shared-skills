@@ -7,7 +7,7 @@
 #   2. Recomputes the display line (so countdowns tick even when Claude is idle).
 #   3. Atomically writes the result to the cache file, plus an "identity" file
 #      so the thin reader can tell whether the cache belongs to the current
-#      session (same session_id / cwd / model / ctx size) or is stale.
+#      session (same session_id / cwd / model / effort / ctx size) or is stale.
 #
 # Run as a launchd user agent (macOS) or systemd user service (Linux). See
 # com.user.claude-statusline-daemon.plist / claude-statusline-daemon.service.
@@ -35,6 +35,7 @@ while true; do
           .session_id // "",
           .workspace.current_dir // "",
           .model.id // .model.display_name // "",
+          .effort.level // "",
           (.context_window.context_window_size // 0 | tostring)
         ] | join("|")
       ' < "$SNAPSHOT_FILE" 2>/dev/null || true)

@@ -1,6 +1,6 @@
 # Claude Code statusline — PowerShell / Windows.
 # Reads JSON from stdin, prints one colored line:
-#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Session: 6m │ Model: Opus 4.7 │ Branch: main
+#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~\Developer\my-project │ Branch: main
 # Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
 # Requires Windows Terminal (or any host with VT / 24-bit color enabled).
 # Compatible with Windows PowerShell 5.1+ and PowerShell 7+. No external deps —
@@ -45,7 +45,7 @@ if (-not $model) { $model = '?' }
 
 $pct        = [double](Get-Path $j @('context_window','used_percentage') 0)
 $ctxSize    = [int]   (Get-Path $j @('context_window','context_window_size') 200000)
-$durationMs = [int64] (Get-Path $j @('cost','total_duration_ms') 0)
+$effort     = [string](Get-Path $j @('effort','level') '')
 $cwd        = [string](Get-Path $j @('workspace','current_dir') '.')
 
 $fivePct    = Get-Path $j @('rate_limits','five_hour','used_percentage')
@@ -100,15 +100,13 @@ function Format-Countdown([int]$secs) {
     return "${mins}m"
 }
 
-# --- Session duration (already-elapsed time) ---------------------------------
+# --- Current directory, with $HOME shown as ~ --------------------------------
 
-$totalMins = [int][math]::Floor($durationMs / 60000)
-if ($totalMins -lt 60) {
-    $session = "${totalMins}m"
-} else {
-    $h = [int][math]::Floor($totalMins / 60)
-    $m = $totalMins % 60
-    if ($m -eq 0) { $session = "${h}h" } else { $session = "${h}h${m}m" }
+$dir = $cwd
+$homeDir = $HOME.TrimEnd('\', '/')
+if ($cwd.Length -ge $homeDir.Length -and $cwd.Substring(0, $homeDir.Length) -ieq $homeDir) {
+    $rest = $cwd.Substring($homeDir.Length)
+    if ($rest -eq '' -or $rest[0] -eq '\' -or $rest[0] -eq '/') { $dir = "~$rest" }
 }
 
 # --- Git branch (silent if not a repo or git is missing) ---------------------
@@ -159,7 +157,10 @@ if ($null -ne $sevenPct) {
     }
 }
 
-$line = "$line │ Session: $session │ Model: $model"
+# Reasoning effort is absent for models that don't support it.
+if ($effort) { $model = "$model ($effort)" }
+
+$line = "$line │ Model: $model │ Dir: $dir"
 if ($branch) { $line = "$line │ Branch: $branch" }
 
 [Console]::Out.Write($line)

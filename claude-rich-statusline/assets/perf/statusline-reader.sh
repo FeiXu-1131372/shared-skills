@@ -6,7 +6,7 @@
 #   1. Persist the JSON snapshot so the background daemon can recompute
 #      countdowns on a 30-second timer even when Claude is idle.
 #   2. Decide whether the daemon's cached line is still valid for THIS
-#      session — if the user has switched session_id, cwd, model, or
+#      session — if the user has switched session_id, cwd, model, effort, or
 #      context-window size, the cache is stale and we must recompute now
 #      (otherwise the new session shows the previous session's data until
 #      the daemon's next 30s tick).
@@ -26,12 +26,13 @@ printf '%s\n' "$input" > "$SNAPSHOT_FILE"
 
 # Identity = the fields that make a cached render belong to one specific
 # session. If any of these change, the cached line is wrong (different model
-# name / different /200k vs /1000k / different cwd, etc.).
+# name / different /200k vs /1000k / different cwd / a /effort change, etc.).
 new_id=$(printf '%s' "$input" | jq -r '
   [
     .session_id // "",
     .workspace.current_dir // "",
     .model.id // .model.display_name // "",
+    .effort.level // "",
     (.context_window.context_window_size // 0 | tostring)
   ] | join("|")
 ')

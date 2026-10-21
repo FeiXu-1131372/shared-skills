@@ -17,7 +17,7 @@ input=$(cat)
 model=$(printf '%s' "$input" | jq -r '.model.display_name // .model.id // "?"')
 pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0')
 ctx_size=$(printf '%s' "$input" | jq -r '.context_window.context_window_size // 200000')
-duration_ms=$(printf '%s' "$input" | jq -r '.cost.total_duration_ms // 0')
+effort=$(printf '%s' "$input" | jq -r '.effort.level // empty')
 cwd=$(printf '%s' "$input" | jq -r '.workspace.current_dir // "."')
 
 five_pct=$(printf '%s' "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
@@ -78,18 +78,12 @@ fmt_countdown() {
   fi
 }
 
-mins=$(( duration_ms / 60000 ))
-if [ "$mins" -lt 60 ]; then
-  session="${mins}m"
-else
-  hours=$(( mins / 60 ))
-  rem=$(( mins % 60 ))
-  if [ "$rem" -eq 0 ]; then
-    session="${hours}h"
-  else
-    session="${hours}h${rem}m"
-  fi
-fi
+# Current directory, with $HOME shown as ~.
+case "$cwd" in
+  "$HOME") dir="~" ;;
+  "$HOME"/*) dir="~${cwd#"$HOME"}" ;;
+  *) dir="$cwd" ;;
+esac
 
 branch=""
 if git -C "$cwd" --no-optional-locks rev-parse --git-dir >/dev/null 2>&1; then
@@ -121,7 +115,12 @@ if [ -n "${seven_pct:-}" ]; then
   fi
 fi
 
-line="${line} │ Session: ${session} │ Model: ${model}"
+# Reasoning effort is absent for models that don't support it.
+if [ -n "$effort" ]; then
+  model="${model} (${effort})"
+fi
+
+line="${line} │ Model: ${model} │ Dir: ${dir}"
 
 if [ -n "$branch" ]; then
   line="${line} │ Branch: ${branch}"

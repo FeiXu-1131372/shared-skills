@@ -1,19 +1,19 @@
 ---
 name: claude-rich-statusline
-description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context ▓░░░░░░░░░ 9% (90k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, session duration, current model, and git branch. Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context ▓░░░░░░░░░ 9% (90k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, and git branch. Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Claude Code Statusline
 
-Claude Code can run a custom shell command on every message and display its single-line stdout as a status line below the prompt. This skill installs a status line that surfaces the things Claude Code itself only warns you about at critical thresholds — context window usage, rate limit consumption, session duration — so the user can pace their work proactively.
+Claude Code can run a custom shell command on every message and display its single-line stdout as a status line below the prompt. This skill installs a status line that surfaces the things Claude Code itself only warns you about at critical thresholds — context window usage and rate limit consumption — alongside the model, reasoning effort, and working directory, so the user can pace their work proactively.
 
 Sample output (color in the bars themselves, gradient green→yellow→red):
 
 ```
-📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Session: 6m │ Model: Opus 4.7 │ Branch: main
+📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main
 ```
 
-Each segment is independent. The 5h / 7d segments are dropped silently when Claude Code doesn't supply rate-limit data (some auth states omit it). The branch is dropped when the workspace isn't a git repo.
+Each segment is independent. The 5h / 7d segments are dropped silently when Claude Code doesn't supply rate-limit data (some auth states omit it). The effort suffix on the model (`(high)`, `(xhigh)`, …) is dropped when the model has no effort level. `Dir:` shows the workspace directory with `$HOME` abbreviated to `~`. The branch is dropped when the workspace isn't a git repo.
 
 **Visual encoding.** Bars are 10 cells wide with `▓` half-cell resolution (so 23% reads as `██░` not jumping straight to `███`). Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%, interpolated linearly. Severity is glanceable from the hue alone — no need to read the number.
 
@@ -81,7 +81,7 @@ Use `Read` then `Edit` to add a `statusLine` block — `~/.claude/settings.json`
 }
 ```
 
-`refreshInterval` (seconds) re-runs the script on a wall-clock cadence in addition to Claude Code's event-driven updates. Without it the script only re-runs on events (turn end, tool use), so the rate-limit countdowns and session timer freeze between turns. 60s is enough for the minute-granularity countdowns to stay visibly fresh.
+`refreshInterval` (seconds) re-runs the script on a wall-clock cadence in addition to Claude Code's event-driven updates. Without it the script only re-runs on events (turn end, tool use), so the rate-limit countdowns freeze between turns. 60s is enough for the minute-granularity countdowns to stay visibly fresh.
 
 If `~/.claude/settings.json` doesn't exist, create it with just `{"statusLine": {...}}`.
 
@@ -95,8 +95,8 @@ Run the script with a synthetic payload to confirm formatting + colors before th
 NOW=$(date +%s)
 echo "{
   \"model\": {\"display_name\": \"Opus 4.7\"},
+  \"effort\": {\"level\": \"high\"},
   \"workspace\": {\"current_dir\": \"$PWD\"},
-  \"cost\": {\"total_duration_ms\": 7500000},
   \"context_window\": {\"used_percentage\": 42.3, \"context_window_size\": 200000},
   \"rate_limits\": {
     \"five_hour\": {\"used_percentage\": 23.5, \"resets_at\": $((NOW + 4*3600 + 12*60))},
@@ -161,8 +161,8 @@ In Windows Terminal, run:
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $payload = @{
   model = @{ display_name = 'Opus 4.7' }
+  effort = @{ level = 'high' }
   workspace = @{ current_dir = $PWD.Path }
-  cost = @{ total_duration_ms = 7500000 }
   context_window = @{ used_percentage = 42.3; context_window_size = 200000 }
   rate_limits = @{
     five_hour = @{ used_percentage = 23.5; resets_at = ($now + 4*3600 + 12*60) }
@@ -182,11 +182,11 @@ The default `statusline.sh` invokes `jq` ~9 times per Claude Code tick. On most 
 
 The performance variant splits the work in three:
 
-- **`~/.claude/statusline.sh`** — a thin reader. Persists the latest JSON snapshot, then either serves the daemon's pre-rendered cache (fast) or recomputes on the fly when the session identity (`session_id` / cwd / model / context size) changes.
+- **`~/.claude/statusline.sh`** — a thin reader. Persists the latest JSON snapshot, then either serves the daemon's pre-rendered cache (fast) or recomputes on the fly when the session identity (`session_id` / cwd / model / effort / context size) changes.
 - **`~/.claude/statusline-daemon.sh`** — a background loop that recomputes the line every 30s from the persisted snapshot, so countdowns advance even when Claude is idle.
 - **`~/.claude/statusline-compute.sh`** — pure rendering logic, called by both.
 
-**Important:** the thin reader keys the cache by session identity (`session_id|cwd|model|ctx_size`). Without that check, starting a new session with a different model, cwd, or context window would show the previous session's line until the daemon's next 30s tick. Always install the matching daemon — they share the identity file `~/.claude/statusline_cache_id.txt`.
+**Important:** the thin reader keys the cache by session identity (`session_id|cwd|model|effort|ctx_size`). Without that check, starting a new session with a different model, effort, cwd, or context window would show the previous session's line until the daemon's next 30s tick. Always install the matching daemon — they share the identity file `~/.claude/statusline_cache_id.txt`.
 
 #### Install (macOS / Linux)
 
@@ -275,14 +275,14 @@ If the user reports raw `␛[38;2;...m` strings, the fix is "use a modern termin
 
 The scripts are intentionally readable, with one section per segment. Common edits:
 
-**Drop a segment** — Comment out the relevant `if`/append block. Each of `5h`, `7d`, `Session`, `Model`, `Branch` is independent.
+**Drop a segment** — Comment out the relevant `if`/append block. Each of `5h`, `7d`, `Model`, `Dir`, `Branch` is independent.
 
 **Change emoji or labels** — Find the `line=` (bash) or `$line =` (PowerShell) assignments. Swap freely.
 
 **Use wall-clock reset time instead of countdown** — Replace `fmt_countdown $(( five_reset - now ))` (bash) with `date -r $five_reset +%H:%M` (macOS) or `date -d @$five_reset +%H:%M` (Linux). On PowerShell: `[DateTimeOffset]::FromUnixTimeSeconds([int]$fiveReset).LocalDateTime.ToString('HH:mm')`.
 
 **Faster (or slower) refresh**
-The install sets `refreshInterval: 60` (seconds — schema minimum is 1, not milliseconds). Drop to `5` for snappier ticking or raise to `300` to spawn fewer subprocesses. Setting it too high (or omitting it) means the countdowns and session timer only update when Claude Code triggers an event, which is what most users perceive as "frozen".
+The install sets `refreshInterval: 60` (seconds — schema minimum is 1, not milliseconds). Drop to `5` for snappier ticking or raise to `300` to spawn fewer subprocesses. Setting it too high (or omitting it) means the countdowns only update when Claude Code triggers an event, which is what most users perceive as "frozen".
 
 **Different gradient endpoints** — In `render_bar`, the formula is:
 - `0%` → RGB(0,255,0) (pure green)
@@ -300,6 +300,7 @@ For reference (and for anyone forking this), Claude Code passes the following JS
 ```json
 {
   "model": {"id": "claude-opus-4-7", "display_name": "Opus 4.7"},
+  "effort": {"level": "high"},
   "workspace": {"current_dir": "...", "project_dir": "..."},
   "cost": {"total_cost_usd": 0.012, "total_duration_ms": 45000},
   "context_window": {
@@ -320,6 +321,7 @@ Notes:
 
 - `context_window_size` is dynamic — `200000` for standard-context Sonnet/Opus, `1000000` for the `[1m]` extended-context variants. The script reads it directly so the `(85k/1000k)` format auto-adapts.
 - `total_input_tokens + total_output_tokens` is the *cumulative* count for the session, **not** the current context. The script computes current usage as `used_percentage × context_window_size / 100` instead, which matches what Claude Code's own threshold warnings use.
+- `effort` may be absent for models without reasoning-effort levels; the scripts then show the bare model name.
 - `rate_limits` may be absent in some auth states (e.g. raw API key without subscription metadata). Both scripts' fallbacks handle that — those segments simply don't appear.
 
 ## Why this exists
