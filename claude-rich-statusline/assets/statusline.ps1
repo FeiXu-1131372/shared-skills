@@ -1,10 +1,15 @@
 # Claude Code statusline — PowerShell / Windows.
 # Reads JSON from stdin, prints one colored line:
-#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~\Developer\my-project │ Branch: main
+#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~\Developer\my-project │ Branch: main │ 116.1 tok/s
 # Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
 # Requires Windows Terminal (or any host with VT / 24-bit color enabled).
 # Compatible with Windows PowerShell 5.1+ and PowerShell 7+. No external deps —
 # uses built-in ConvertFrom-Json (no jq needed).
+#
+# One small piece of state: the generation-speed segment (tok/s, last segment
+# of the line) keeps a tiny per-session file in ~\.claude\statusline-speed\ so
+# it can diff cost.total_api_duration_ms between ticks. It is idempotent —
+# re-rendering the same snapshot never changes the number.
 
 $ErrorActionPreference = 'Stop'
 
@@ -127,6 +132,64 @@ try {
     }
 } catch { }
 
+# --- Generation speed of the last response (tok/s) ---------------------------
+#
+#   tok/s = output_tokens of the last response
+#           / (growth in cost.total_api_duration_ms since the previous tick)
+#
+# The status line re-runs after each response, so the growth in
+# total_api_duration_ms since the previous tick is the API time of that
+# response (timer ticks in between see no growth and change nothing). It is an
+# end-to-end figure (includes time-to-first-token and network), so it reads
+# lower than raw decode speed, most visibly on short replies. Responses under
+# 30 output tokens or 0.5 s are ignored as too noisy; the previous figure stays.
+# Nothing is shown until one full response has been measured in the session.
+
+$speed = ''
+try {
+    $sid    = [string](Get-Path $j @('session_id') '')
+    $apiMs  = Get-Path $j @('cost','total_api_duration_ms')
+    $outTok = Get-Path $j @('context_window','current_usage','output_tokens')
+    if ($null -eq $outTok) { $outTok = Get-Path $j @('context_window','total_output_tokens') }
+
+    if ($sid -match '^[A-Za-z0-9_-]+$' -and $null -ne $apiMs -and $null -ne $outTok) {
+        $apiMs     = [long][math]::Floor([double]$apiMs)
+        $outTok    = [long][math]::Floor([double]$outTok)
+        $speedDir  = Join-Path (Join-Path $HOME '.claude') 'statusline-speed'
+        $stateFile = Join-Path $speedDir $sid
+
+        $prevMs   = $null
+        $lastRate = ''
+        if (Test-Path -LiteralPath $stateFile) {
+            $parts = (Get-Content -LiteralPath $stateFile -Raw).Trim() -split '\s+'
+            if ($parts.Count -ge 1 -and $parts[0] -match '^\d+$') { $prevMs = [long]$parts[0] }
+            if ($parts.Count -ge 2) { $lastRate = $parts[1] }
+        } else {
+            New-Item -ItemType Directory -Force -Path $speedDir | Out-Null
+            Get-ChildItem -LiteralPath $speedDir -File |
+                Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+
+        $newRate = $lastRate
+        # No baseline yet: record one below, show nothing.
+        if ($null -ne $prevMs -and $apiMs -gt $prevMs) {
+            $dMs = $apiMs - $prevMs
+            if ($outTok -ge 30 -and $dMs -ge 500) {
+                $rate = $outTok / ($dMs / 1000.0)
+                if ($rate -le 2000) {
+                    $newRate = $rate.ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture)
+                }
+            }
+        }
+
+        if ($apiMs -ne $prevMs) {
+            Set-Content -LiteralPath $stateFile -Value "$apiMs $newRate" -Encoding ASCII
+        }
+        $speed = $newRate
+    }
+} catch { }
+
 # --- Compose the line --------------------------------------------------------
 
 $usedK  = Format-K $tokensUsed
@@ -162,5 +225,6 @@ if ($effort) { $model = "$model ($effort)" }
 
 $line = "$line │ Model: $model │ Dir: $dir"
 if ($branch) { $line = "$line │ Branch: $branch" }
+if ($speed) { $line = "$line │ $speed tok/s" }
 
 [Console]::Out.Write($line)

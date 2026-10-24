@@ -1,6 +1,6 @@
 ---
 name: claude-rich-statusline
-description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context ▓░░░░░░░░░ 9% (90k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, and git branch. Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context ▓░░░░░░░░░ 9% (90k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Claude Code Statusline
@@ -10,10 +10,12 @@ Claude Code can run a custom shell command on every message and display its sing
 Sample output (color in the bars themselves, gradient green→yellow→red):
 
 ```
-📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main
+📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
 ```
 
 Each segment is independent. The 5h / 7d segments are dropped silently when Claude Code doesn't supply rate-limit data (some auth states omit it). The effort suffix on the model (`(high)`, `(xhigh)`, …) is dropped when the model has no effort level. `Dir:` shows the workspace directory with `$HOME` abbreviated to `~`. The branch is dropped when the workspace isn't a git repo.
+
+**Generation speed (`tok/s`).** The last segment is the speed of the *latest* response only — not an average — so it tells you how fast the model is running right now. It is the output tokens of that response divided by the API time it took (the growth in `cost.total_api_duration_ms` since the previous status-line update). See "Generation speed" below for what it does and doesn't measure.
 
 **Visual encoding.** Bars are 10 cells wide with `▓` half-cell resolution (so 23% reads as `██░` not jumping straight to `███`). Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%, interpolated linearly. Severity is glanceable from the hue alone — no need to read the number.
 
@@ -107,6 +109,19 @@ echo "{
 
 You should see three colored bars (yellow-green Context, yellow-green 5h, yellow-green 7d) and segment separators (`│`). If the bars appear monochrome, the terminal lacks 24-bit color — see "Truecolor support" below.
 
+The `tok/s` segment won't be in that output: it needs two ticks in the same session to have anything to measure. To see it, feed two payloads with the same `session_id` and a growing `cost.total_api_duration_ms`. A throwaway `HOME` keeps a real session's state untouched:
+
+```bash
+SMOKE_HOME=$(mktemp -d)
+for tick in "10000 200" "16000 600"; do
+  api=${tick% *}; out=${tick#* }
+  echo "{\"session_id\":\"smoke\",\"cost\":{\"total_api_duration_ms\":$api},\"context_window\":{\"used_percentage\":10,\"context_window_size\":200000,\"current_usage\":{\"output_tokens\":$out}}}" \
+    | HOME="$SMOKE_HOME" bash ~/.claude/statusline.sh && echo
+done
+```
+
+The first line has no speed (it only records a baseline); the second should end with `│ 100.0 tok/s` (600 tokens over 6 s). In a real session the segment appears after the second response finishes.
+
 ### Windows (Windows Terminal + PowerShell)
 
 The PowerShell script is dependency-free — no `jq` needed, since PowerShell parses JSON natively.
@@ -186,7 +201,7 @@ The performance variant splits the work in three:
 - **`~/.claude/statusline-daemon.sh`** — a background loop that recomputes the line every 30s from the persisted snapshot, so countdowns advance even when Claude is idle.
 - **`~/.claude/statusline-compute.sh`** — pure rendering logic, called by both.
 
-**Important:** the thin reader keys the cache by session identity (`session_id|cwd|model|effort|ctx_size`). Without that check, starting a new session with a different model, effort, cwd, or context window would show the previous session's line until the daemon's next 30s tick. Always install the matching daemon — they share the identity file `~/.claude/statusline_cache_id.txt`.
+**Important:** the thin reader keys the cache by session identity (`session_id|cwd|model|effort|ctx_size|api_duration_ms`). Without that check, starting a new session with a different model, effort, cwd, or context window would show the previous session's line until the daemon's next 30s tick. The API duration is in the key because it only grows when a response finishes, so each finished response refreshes the line (and its `tok/s`) straight away instead of waiting for the daemon. Always install the matching daemon — they share the identity file `~/.claude/statusline_cache_id.txt`.
 
 #### Install (macOS / Linux)
 
@@ -248,7 +263,7 @@ rm ~/.config/systemd/user/claude-statusline-daemon.service
 systemctl --user daemon-reload
 ```
 
-Then either restore the self-contained `statusline.sh` from `assets/statusline.sh`, or remove the `statusLine` block from `settings.json` entirely.
+Then either restore the self-contained `statusline.sh` from `assets/statusline.sh`, or remove the `statusLine` block from `settings.json` entirely. The `tok/s` segment's small per-session files live in `~/.claude/statusline-speed/` (`~\.claude\statusline-speed\` on Windows); delete that folder when uninstalling.
 
 #### When NOT to use the performance variant
 
@@ -275,7 +290,9 @@ If the user reports raw `␛[38;2;...m` strings, the fix is "use a modern termin
 
 The scripts are intentionally readable, with one section per segment. Common edits:
 
-**Drop a segment** — Comment out the relevant `if`/append block. Each of `5h`, `7d`, `Model`, `Dir`, `Branch` is independent.
+**Drop a segment** — Comment out the relevant `if`/append block. Each of `5h`, `7d`, `Model`, `Dir`, `Branch`, `tok/s` is independent.
+
+**Tune the tok/s noise filter** — In the speed block, `t >= 30 && d >= 500` ignores responses under 30 output tokens or 0.5 s of API time, and `<= 2000` discards impossible readings. Loosen the first two to show speed for very short replies (they read noisy), or change what happens when a response is skipped: today the previous figure stays on screen; to blank the segment instead, add `else new_rate=""` after the `new_rate="$r"` line (bash) or reset `$newRate = ''` when the filter fails (PowerShell).
 
 **Change emoji or labels** — Find the `line=` (bash) or `$line =` (PowerShell) assignments. Swap freely.
 
@@ -302,10 +319,11 @@ For reference (and for anyone forking this), Claude Code passes the following JS
   "model": {"id": "claude-opus-4-7", "display_name": "Opus 4.7"},
   "effort": {"level": "high"},
   "workspace": {"current_dir": "...", "project_dir": "..."},
-  "cost": {"total_cost_usd": 0.012, "total_duration_ms": 45000},
+  "cost": {"total_cost_usd": 0.012, "total_duration_ms": 45000, "total_api_duration_ms": 13640},
   "context_window": {
     "total_input_tokens": 15234,
     "total_output_tokens": 4521,
+    "current_usage": {"output_tokens": 154},
     "context_window_size": 200000,
     "used_percentage": 8.4
   },
@@ -323,6 +341,26 @@ Notes:
 - `total_input_tokens + total_output_tokens` is the *cumulative* count for the session, **not** the current context. The script computes current usage as `used_percentage × context_window_size / 100` instead, which matches what Claude Code's own threshold warnings use.
 - `effort` may be absent for models without reasoning-effort levels; the scripts then show the bare model name.
 - `rate_limits` may be absent in some auth states (e.g. raw API key without subscription metadata). Both scripts' fallbacks handle that — those segments simply don't appear.
+- `cost.total_api_duration_ms` is *cumulative* time spent in API calls this session, and `context_window.current_usage.output_tokens` is the output (including thinking) tokens of the *last* response only — not a running total. Those two are what the `tok/s` segment uses; the scripts fall back to `total_output_tokens` if `current_usage` is absent.
+
+## Generation speed (`tok/s`)
+
+Claude Code doesn't hand the status line a speed, and the only timing it exposes is a cumulative API duration that moves when a response completes, so a live, mid-stream figure isn't possible. What the script shows is the speed of the **last completed response**:
+
+```
+tok/s = output_tokens of the last response
+        / (growth in cost.total_api_duration_ms since the previous status-line update)
+```
+
+Because that needs the previous duration, the script keeps a tiny per-session file, `~/.claude/statusline-speed/<session_id>`, holding the last duration and the last rate (files older than 7 days are pruned when a new session file is created). Re-rendering the same snapshot never changes the number: the daemon's 30-second recomputes and `refreshInterval` timer ticks see no growth in the duration, so they leave the figure alone.
+
+What to expect:
+
+- **Nothing at first.** The segment appears after the *second* response in a session, once there are two durations to diff.
+- **End-to-end, not raw decode speed.** The API time includes time-to-first-token and network, so it reads lower than the model's decode rate, most visibly on short replies.
+- **Short replies are skipped.** Responses under 30 output tokens or 0.5 s are too noisy; the previous figure stays on screen instead of showing a bad one.
+- **Can read low.** If two responses finish between two status-line updates, or subagent / side-query API time lands in the same window, the duration is larger than the response alone.
+- **Sanity cap.** Any reading above 2000 tok/s is discarded as a mismatch.
 
 ## Why this exists
 

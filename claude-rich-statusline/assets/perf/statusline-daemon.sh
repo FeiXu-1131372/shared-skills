@@ -36,7 +36,8 @@ while true; do
           .workspace.current_dir // "",
           .model.id // .model.display_name // "",
           .effort.level // "",
-          (.context_window.context_window_size // 0 | tostring)
+          (.context_window.context_window_size // 0 | tostring),
+          (.cost.total_api_duration_ms // 0 | floor | tostring)
         ] | join("|")
       ' < "$SNAPSHOT_FILE" 2>/dev/null || true)
       printf '%s' "$new_id" > "$CACHE_ID_TMP"

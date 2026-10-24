@@ -27,13 +27,17 @@ printf '%s\n' "$input" > "$SNAPSHOT_FILE"
 # Identity = the fields that make a cached render belong to one specific
 # session. If any of these change, the cached line is wrong (different model
 # name / different /200k vs /1000k / different cwd / a /effort change, etc.).
+# total_api_duration_ms only grows when a response finishes, so including it
+# makes the tok/s segment refresh right after each response instead of waiting
+# for the daemon's next tick.
 new_id=$(printf '%s' "$input" | jq -r '
   [
     .session_id // "",
     .workspace.current_dir // "",
     .model.id // .model.display_name // "",
     .effort.level // "",
-    (.context_window.context_window_size // 0 | tostring)
+    (.context_window.context_window_size // 0 | tostring),
+    (.cost.total_api_duration_ms // 0 | floor | tostring)
   ] | join("|")
 ')
 

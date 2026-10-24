@@ -9,6 +9,11 @@
 # Called by:
 #   - statusline-daemon.sh  every 30 s (reads from snapshot file via stdin)
 #   - statusline.sh (thin reader) on session-identity change as a fast path
+#
+# One small piece of state: the generation-speed segment (tok/s, last segment
+# of the line) keeps a tiny per-session file in ~/.claude/statusline-speed/ so
+# it can diff cost.total_api_duration_ms between ticks. It is idempotent —
+# re-rendering the same snapshot never changes the number.
 
 set -eu
 
@@ -90,6 +95,62 @@ if git -C "$cwd" --no-optional-locks rev-parse --git-dir >/dev/null 2>&1; then
   branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null || true)
 fi
 
+# Generation speed of the most recent API response, in tokens per second.
+#
+#   tok/s = output_tokens of the last response
+#           / (growth in cost.total_api_duration_ms since the previous tick)
+#
+# The status line re-runs after each response, so the growth in
+# total_api_duration_ms since the previous tick is the API time of that
+# response (timer ticks in between see no growth and change nothing). It is an
+# end-to-end figure (includes time-to-first-token and network), so it reads
+# lower than raw decode speed, most visibly on short replies. Responses under
+# 30 output tokens or 0.5 s are ignored as too noisy; the previous figure stays.
+# Nothing is shown until one full response has been measured in the session.
+SPEED_DIR="${HOME}/.claude/statusline-speed"
+speed=""
+sid=$(printf '%s' "$input" | jq -r '.session_id // empty')
+api_ms=$(printf '%s' "$input" | jq -r '.cost.total_api_duration_ms // empty')
+out_tok=$(printf '%s' "$input" | jq -r '.context_window.current_usage.output_tokens // .context_window.total_output_tokens // empty')
+api_ms="${api_ms%%.*}"
+out_tok="${out_tok%%.*}"
+case "$sid" in *[!A-Za-z0-9_-]*) sid="" ;; esac
+case "$api_ms" in ''|*[!0-9]*) api_ms="" ;; esac
+case "$out_tok" in ''|*[!0-9]*) out_tok="" ;; esac
+
+if [ -n "$sid" ] && [ -n "$api_ms" ] && [ -n "$out_tok" ]; then
+  speed_state="${SPEED_DIR}/${sid}"
+  prev_ms=""
+  last_rate=""
+  if [ -f "$speed_state" ]; then
+    read -r prev_ms last_rate < "$speed_state" || true
+  else
+    mkdir -p "$SPEED_DIR" 2>/dev/null || true
+    find "$SPEED_DIR" -type f -mtime +7 -delete 2>/dev/null || true
+  fi
+
+  new_rate="$last_rate"
+  case "$prev_ms" in
+    ''|*[!0-9]*) ;;   # no baseline yet: record one below, show nothing
+    *)
+      if [ "$api_ms" -gt "$prev_ms" ]; then
+        r=$(awk -v t="$out_tok" -v d=$(( api_ms - prev_ms )) 'BEGIN {
+          if (t >= 30 && d >= 500 && t / (d / 1000) <= 2000) printf "%.1f", t / (d / 1000)
+        }')
+        if [ -n "$r" ]; then
+          new_rate="$r"
+        fi
+      fi
+      ;;
+  esac
+
+  if [ "$api_ms" != "$prev_ms" ]; then
+    printf '%s %s\n' "$api_ms" "$new_rate" > "${speed_state}.tmp.$$" 2>/dev/null \
+      && mv -f "${speed_state}.tmp.$$" "$speed_state" 2>/dev/null || true
+  fi
+  speed="$new_rate"
+fi
+
 ctx_bar=$(render_bar "$pct_int")
 line="📊 Context: ${ctx_bar} ${pct_int}% (${used_k}/${total_k})"
 
@@ -124,6 +185,10 @@ line="${line} │ Model: ${model} │ Dir: ${dir}"
 
 if [ -n "$branch" ]; then
   line="${line} │ Branch: ${branch}"
+fi
+
+if [ -n "$speed" ]; then
+  line="${line} │ ${speed} tok/s"
 fi
 
 printf '%s' "$line"
