@@ -3,12 +3,15 @@
 # One line, same shape as the bash version and the Claude Code rich statusline:
 #
 #   📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │
-#   7d: ▓░░░░░░░░░ 6% (2d10h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business
+#   7d: ▓░░░░░░░░░ 6% (2d10h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
 #
 # Context and the working directory come from the JSON Droid pipes in on every
 # tick. The Factory plan numbers do not — they need the billing limits API, so
 # this script refreshes a cache file in a detached child process and otherwise
 # only reads it.
+#
+# The tok/s segment (last on the line) is the speed of the latest model call. It
+# needs the two session files Droid points at in the payload, and keeps no state.
 #
 # Needs Windows Terminal (or any host with VT / 24-bit color), and PowerShell 5.1+.
 # No jq needed — ConvertFrom-Json is built in. The Factory plan numbers come from
@@ -248,6 +251,61 @@ if ($cacheAge -ge 0 -and $cacheAge -lt $UsableSeconds) {
 $dirName = Split-Path -Path $cwd -Leaf
 if ([string]::IsNullOrWhiteSpace($dirName)) { $dirName = $cwd }
 $segments.Add("📁 $dirName")
+
+# --- generation speed of the latest model call -----------------------------
+# Droid's payload has no timing or output-token fields, so this reads the two
+# session files it points at:
+#
+#   tokens  = lastCallTokenUsage.outputTokens in the session settings file
+#   seconds = timestamp of the newest assistant message in the transcript minus
+#             the timestamp of the message right before it (the prompt or tool
+#             result that call was answering)
+#
+# Only the last few transcript lines are read, and only the head of each one
+# (tool results can run to megabytes). It is an end-to-end figure (includes
+# time-to-first-token and network), so it reads below raw decode speed, most
+# visibly on short replies. Calls under 30 tokens or 0.5 s are too noisy to be
+# worth showing, so the segment drops out. No state is kept: the same files
+# always give the same number.
+try {
+    $transcriptPath = [string]$payload.transcript_path
+    $settingsPath   = [string]$payload.session_settings_path
+    if ($transcriptPath -and $settingsPath -and
+        (Test-Path -LiteralPath $transcriptPath) -and (Test-Path -LiteralPath $settingsPath)) {
+
+        $lastCall = (Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json).lastCallTokenUsage
+        $outTok   = if ($lastCall) { $lastCall.outputTokens } else { $null }
+
+        $messages = [System.Collections.Generic.List[object]]::new()
+        foreach ($line in (Get-Content -LiteralPath $transcriptPath -Tail 24)) {
+            $head = if ($line.Length -gt 400) { $line.Substring(0, 400) } else { $line }
+            if ($head -notmatch '^\{"type":"message"') { continue }
+            if ($head -notmatch '"timestamp":"([^"]+)"') { continue }
+            $stamp = $Matches[1]
+            if ($head -notmatch '"role":"(assistant|user)"') { continue }
+            $messages.Add(@{
+                role = $Matches[1]
+                time = [DateTimeOffset]::Parse($stamp, [System.Globalization.CultureInfo]::InvariantCulture,
+                                               [System.Globalization.DateTimeStyles]::AssumeUniversal)
+            })
+        }
+
+        $last = -1
+        for ($k = $messages.Count - 1; $k -ge 1; $k--) {
+            if ($messages[$k].role -eq 'assistant') { $last = $k; break }
+        }
+
+        if ($last -ge 1 -and $null -ne $outTok) {
+            $seconds = ($messages[$last].time - $messages[$last - 1].time).TotalSeconds
+            if ([double]$outTok -ge 30 -and $seconds -ge 0.5) {
+                $rate = [double]$outTok / $seconds
+                if ($rate -le 2000) {
+                    $segments.Add($rate.ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) + ' tok/s')
+                }
+            }
+        }
+    }
+} catch { }
 
 [Console]::Out.Write(($segments -join ' │ '))
 

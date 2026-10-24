@@ -4,12 +4,15 @@
 # One line, same shape as the Claude Code rich statusline:
 #
 #   📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │
-#   7d: ▓░░░░░░░░░ 6% (2d10h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business
+#   7d: ▓░░░░░░░░░ 6% (2d10h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
 #
 # Context and the working directory come from the JSON Droid pipes in on every
 # tick. The Factory plan numbers do not — they need the billing limits API, so a
 # detached worker (fetch-usage.mjs) refreshes a cache file and this script only
 # reads it, spawning a refresh when it goes stale.
+#
+# The tok/s segment (last on the line) is the speed of the latest model call. It
+# needs the two session files Droid points at in the payload, and keeps no state.
 #
 # Needs: bash, jq, node (node only for the usage segments — without it the line
 # still renders context and directory).
@@ -52,13 +55,17 @@ fields=$(printf '%s' "$input" | "$JQ" -r '[
   (.cwd // .workspace.current_dir // "."),
   (.context.percentage // ""),
   (.context.adjusted_tokens // ""),
-  (.context.adjusted_limit // "")
-] | @tsv' 2>/dev/null || printf '.\t\t\t')
+  (.context.adjusted_limit // ""),
+  (.transcript_path // ""),
+  (.session_settings_path // "")
+] | @tsv' 2>/dev/null || printf '.\t\t\t\t\t')
 
 cwd=$(printf '%s' "$fields" | cut -f1)
 ctx_pct=$(printf '%s' "$fields" | cut -f2 | tr -d '%')
 ctx_used=$(printf '%s' "$fields" | cut -f3)
 ctx_total=$(printf '%s' "$fields" | cut -f4)
+transcript=$(printf '%s' "$fields" | cut -f5)
+session_settings=$(printf '%s' "$fields" | cut -f6)
 
 # No directory in the payload: fall back to where this process actually is,
 # so the segment shows a real folder name rather than a bare ".". PowerShell
@@ -165,6 +172,38 @@ fi
 
 # --- working directory ------------------------------------------------------
 append "📁 $(basename "$cwd")"
+
+# --- generation speed of the latest model call ------------------------------
+# Droid's payload has no timing or output-token fields, so this reads the two
+# session files it points at:
+#
+#   tokens  = lastCallTokenUsage.outputTokens in the session settings file
+#   seconds = timestamp of the newest assistant message in the transcript minus
+#             the timestamp of the message right before it (the prompt or tool
+#             result that call was answering)
+#
+# Only the last few transcript lines are read, so a multi-MB transcript costs
+# nothing. It is an end-to-end figure (includes time-to-first-token and network),
+# so it reads below raw decode speed, most visibly on short replies. Calls under
+# 30 tokens or 0.5 s are too noisy to be worth showing, so the segment drops out.
+# No state is kept: the same files always give the same number.
+speed=""
+if [ -n "$transcript" ] && [ -n "$session_settings" ] && [ -r "$transcript" ] && [ -r "$session_settings" ]; then
+  out_tok=$("$JQ" -r '.lastCallTokenUsage.outputTokens // empty' "$session_settings" 2>/dev/null || true)
+  span=$(tail -n 24 "$transcript" 2>/dev/null | "$JQ" -Rrn '
+    def secs: ((.[0:19] + "Z") | fromdateiso8601) + ((.[19:23] | tonumber?) // 0);
+    [inputs | fromjson? | select(.type == "message" and .timestamp != null)] as $m
+    | ([range(1; $m | length) | select($m[.].message.role == "assistant")] | last) as $i
+    | if $i == null then empty else ($m[$i].timestamp | secs) - ($m[$i - 1].timestamp | secs) end
+  ' 2>/dev/null || true)
+  case "$out_tok" in ''|*[!0-9]*) out_tok="" ;; esac
+  if [ -n "$out_tok" ] && [ -n "$span" ]; then
+    speed=$(awk -v t="$out_tok" -v d="$span" 'BEGIN {
+      if (t >= 30 && d >= 0.5 && t / d <= 2000) printf "%.1f", t / d
+    }')
+  fi
+fi
+[ -n "$speed" ] && append "${speed} tok/s"
 
 # --- refresh the cache in the background when it goes stale -----------------
 if [ -n "$NODE" ] && [ -f "$REFRESH" ] && { [ "$cache_age" -lt 0 ] || [ "$cache_age" -ge "$FRESH" ]; }; then

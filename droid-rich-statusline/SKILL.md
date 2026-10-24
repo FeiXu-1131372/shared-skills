@@ -1,6 +1,6 @@
 ---
 name: droid-rich-statusline
-description: Install or configure a feature-rich Factory Droid status line that displays real-time context window usage with a colored progress bar (e.g. "📊 Context: ▓░░░░░░░░░ 9% (36k/400k)"), the Factory plan's 5-hour, weekly and monthly consumption with reset countdowns (e.g. "5h: ██▓░░░░░░░ 28% (2h32m)"), and the current working directory. Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux and Windows. Use this skill whenever the user asks to set up a Droid status line, configure the statusLine field in ~/.factory/settings.json, see context window usage in their terminal, monitor Factory plan limits / FSC consumption, see how close they are to their 5-hour or weekly cap, or wants any kind of real-time visibility into their Droid session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Factory Droid status line that displays real-time context window usage with a colored progress bar (e.g. "📊 Context: ▓░░░░░░░░░ 9% (36k/400k)"), the Factory plan's 5-hour, weekly and monthly consumption with reset countdowns (e.g. "5h: ██▓░░░░░░░ 28% (2h32m)"), the current working directory, and the generation speed of the latest model call (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux and Windows. Use this skill whenever the user asks to set up a Droid status line, configure the statusLine field in ~/.factory/settings.json, see context window usage in their terminal, monitor Factory plan limits / FSC consumption, see how close they are to their 5-hour or weekly cap, or wants any kind of real-time visibility into their Droid session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Droid Statusline
@@ -10,15 +10,16 @@ Droid can run a shell command on every redraw and show its stdout as a status li
 Sample output (the color lives in the bars themselves, gradient green → yellow → red):
 
 ```
-📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ░░░░░░░░░░ 2% (4h24m) │ 7d: █░░░░░░░░░ 10% (2d4h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business
+📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ░░░░░░░░░░ 2% (4h24m) │ 7d: █░░░░░░░░░ 10% (2d4h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
 ```
 
 Every segment is independent, and each one drops out silently when its data is unavailable. The line degrades in this order:
 
-- **No `node`** → no `5h` / `7d` / `Month` segments. Context and directory still render.
+- **No `node`** → no `5h` / `7d` / `Month` segments. Context, directory and speed still render.
 - **No `jq`** (macOS/Linux) → the script prints one short install hint and nothing else.
 - **Credentials in the OS keychain only** → no usage segments (see "Known limits").
 - **No `context` in the payload** → no Context segment.
+- **No readable `transcript_path` / `session_settings_path`**, or the latest call was too short to time → no `tok/s` segment.
 
 **Visual encoding.** Bars are 10 cells wide with `▓` half-cell resolution (so 23% reads as `██░`, not jumping straight to `███`). Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%. Severity is glanceable from the hue alone — peripheral vision picks up "the bars are going orange" without reading a single number.
 
@@ -46,6 +47,7 @@ Don't trigger for:
 | `📊 Context` | Droid's payload | Droid's own compaction meter, so it matches the threshold Droid acts on |
 | `5h` / `7d` / `Month` | Factory billing API | Droid's payload carries no usage data at all |
 | `📁 <dir>` | Droid's payload | Which project this tab is pointed at |
+| `tok/s` | Droid's session files | The payload has no timing or output-token fields, so the two session files it points at supply them (see "Generation speed") |
 
 The Context figure uses `context.percentage` with `context.adjusted_tokens` / `context.adjusted_limit`. Those are the numbers *after* Droid subtracts its fixed system-prompt baseline, which is exactly what the compaction meter uses. That makes it the honest "how close am I to compaction" number rather than a raw token count.
 
@@ -96,7 +98,15 @@ echo '{"cwd":"'"$PWD"'","context":{"percentage":9,"adjusted_tokens":36000,"adjus
   | bash ~/.factory/statusline.sh && echo
 ```
 
-You should see the Context bar, then the plan segments (the first run writes the cache in the background, so the usage numbers may take one extra redraw to appear), then the folder name.
+You should see the Context bar, then the plan segments (the first run writes the cache in the background, so the usage numbers may take one extra redraw to appear), then the folder name. There is no `tok/s` here: that payload names no session files. To see it, point the payload at a real session (substitute a project folder and session id from `~/.factory/sessions/`; each session is a `<id>.jsonl` transcript plus a `<id>.settings.json`):
+
+```bash
+S=~/.factory/sessions/-Users-<you>-<project>/<session-id>
+echo '{"cwd":"'"$PWD"'","transcript_path":"'"$S.jsonl"'","session_settings_path":"'"$S.settings.json"'"}' \
+  | bash ~/.factory/statusline.sh && echo
+```
+
+It ends with something like `│ 106.1 tok/s`, from that session's latest model call.
 
 ### Step 5 — Confirm against Droid's own budget
 
@@ -197,6 +207,25 @@ The encrypted file is `base64(iv):base64(authTag):base64(ciphertext)`, AES-256-G
 
 **Nothing is written back to Factory.** The worker only performs a `GET`. It does not refresh tokens, change settings, or touch your account.
 
+## Generation speed (`tok/s`)
+
+The last segment is the speed of the **latest model call** — not an average — so it tells you how fast the model is running right now. Droid's payload carries no timing or output-token fields, but it does point at two files that do:
+
+```
+tok/s = lastCallTokenUsage.outputTokens           (session_settings_path)
+        / (timestamp of the newest assistant message in the transcript
+           − timestamp of the message just before it)     (transcript_path)
+```
+
+The message just before an assistant message is the prompt or tool result that call was answering, so the gap is how long the call took to come back.
+
+- **Cheap.** Only the last 24 lines of the transcript are read (a transcript can run to tens of MB), and only the head of each line on Windows, so it adds a few milliseconds.
+- **Stateless.** Nothing is cached or written: the same two files always give the same number, and a redraw between calls changes nothing.
+- **Tokens appear to include thinking.** A call with a short visible reply can report several times more output tokens than its text accounts for, which fits hidden reasoning being counted. The elapsed time covers that reasoning too, so the ratio is still a fair generation rate.
+- **End-to-end, not raw decode speed.** The gap includes time-to-first-token and network, so it reads lower than the model's decode rate, most visibly on short replies. Timestamps have millisecond precision, so the figure is stable.
+- **Short calls drop out.** Calls under 30 output tokens or 0.5 s are too noisy to be worth showing, and any reading above 2000 tok/s is discarded as a mismatch. In both cases the segment is simply absent for that call.
+- **Not `assistantActiveTimeMs`.** The session settings file also has a cumulative active-time counter, but it can advance by minutes between two writes while the token counts don't move (it is not tied to model output), so dividing tokens by it gives a meaningless number. The timestamp gap is what the script uses.
+
 ## Truecolor support
 
 The gradient bars use 24-bit color via `\033[38;2;R;G;Bm`. Supported by:
@@ -211,7 +240,9 @@ If the user reports raw escape codes, the fix is "use a modern terminal", not "p
 
 Both scripts are deliberately readable, with one section per segment.
 
-**Drop a segment** — comment out its block. Each of Context, `5h`, `7d`, `Month` and the directory is independent. The `5h`/`7d`/`Month` loop is driven by a single list (`for window in fiveHour:5h weekly:7d monthly:Month`), so removing one entry is a one-line edit.
+**Drop a segment** — comment out its block. Each of Context, `5h`, `7d`, `Month`, the directory and `tok/s` is independent.
+
+**Tune the tok/s noise filter** — in the speed block, `t >= 30 && d >= 0.5` skips calls under 30 output tokens or 0.5 s, and `t / d <= 2000` discards impossible readings (PowerShell: `$outTok -ge 30 -and $seconds -ge 0.5`, `$rate -le 2000`). Loosen the first two to show speed for very short replies; they read noisy. The `5h`/`7d`/`Month` loop is driven by a single list (`for window in fiveHour:5h weekly:7d monthly:Month`), so removing one entry is a one-line edit.
 
 **Change emoji or labels** — find the `append "…"` calls (bash) or `$segments.Add(…)` (PowerShell).
 
@@ -252,6 +283,7 @@ Notes:
 - `context` is **nullable** — it is `null` before the first turn, and both scripts handle that by dropping the segment.
 - `adjusted_*` subtract the fixed system-prompt baseline; `token_limit` is the raw configured limit. The scripts use the adjusted pair so the display matches Droid's compaction behavior.
 - There is **no** `rate_limits` field. That absence is the entire reason for the worker.
+- There is also no output-token or timing field. `transcript_path` (a JSONL file, one object per line, message lines carrying `timestamp` and `message.role`) and `session_settings_path` (JSON with `lastCallTokenUsage.outputTokens`, cumulative `tokenUsage` and `assistantActiveTimeMs`) are how the `tok/s` segment gets them.
 - `maxRows` caps the height; the script prints a single line and no trailing newline.
 
 ## Known limits
@@ -263,6 +295,8 @@ Notes:
 **Plan shape.** The worker reads `limits.standard` and falls back to `limits.core`, preferring whichever has a live window, so it matches the Factory dashboard on both metered styles.
 
 **Countdown freshness.** Droid's statusLine schema has no refresh-interval option (unlike Claude Code's), so countdowns advance when Droid redraws the line — on turn end and tool use. An idle tab's countdown looks frozen until the next redraw. That is a Droid limitation, not a bug in the script.
+
+**tok/s depends on Droid's session file layout.** The speed comes from the transcript's per-message `timestamp` and `message.role` and from `lastCallTokenUsage.outputTokens`, which are Droid internals rather than a documented interface. If a Droid update renames them, the segment quietly disappears (the rest of the line is unaffected) until the script is adjusted. If the settings file and the transcript are ever written at slightly different moments, a redraw could pair one call's tokens with a neighbouring call's timing; the next redraw corrects it. (In the sessions this was tested against, both files were written together.)
 
 **Logs.** Failures append to `~/.factory/statusline-usage.log` and never print to the status line. If the usage segments will not appear, read that file first — it names the reason (`no access token found`, `billing limits returned HTTP 401`, `node not found`, and so on).
 
