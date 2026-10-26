@@ -1,6 +1,6 @@
 ---
 name: claude-rich-statusline
-description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context ▓░░░░░░░░░ 9% (90k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context █▌░░░ 35% (350k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Claude Code Statusline
@@ -10,14 +10,14 @@ Claude Code can run a custom shell command on every message and display its sing
 Sample output (color in the bars themselves, gradient green→yellow→red):
 
 ```
-📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
+📊 Context: █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
 ```
 
 Each segment is independent. The 5h / 7d segments are dropped silently when Claude Code doesn't supply rate-limit data (some auth states omit it). The effort suffix on the model (`(high)`, `(xhigh)`, …) is dropped when the model has no effort level. `Dir:` shows the workspace directory with `$HOME` abbreviated to `~`. The branch is dropped when the workspace isn't a git repo.
 
 **Generation speed (`tok/s`).** The last segment is the speed of the *latest* response only — not an average — so it tells you how fast the model is running right now. It is the output tokens of that response divided by the API time it took (the growth in `cost.total_api_duration_ms` since the previous status-line update). See "Generation speed" below for what it does and doesn't measure.
 
-**Visual encoding.** Bars are 10 cells wide with `▓` half-cell resolution (so 23% reads as `██░` not jumping straight to `███`). Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%, interpolated linearly. Severity is glanceable from the hue alone — no need to read the number.
+**Visual encoding.** Bars are 5 cells wide (20% per cell) with a `▌` half block for the 10% step in between, rounded down (so 30% reads as `█▌░░░` rather than jumping from `█░░░░` to `██░░░`). The empty part is a flat dark-gray track (`░` in the samples here), and a half cell is the bar color on a track-colored background. Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%, interpolated linearly. Severity is glanceable from the hue alone — no need to read the number.
 
 ## When to use this skill
 
@@ -308,7 +308,9 @@ The install sets `refreshInterval: 60` (seconds — schema minimum is 1, not mil
 
 To shift the breakpoint (e.g. yellow at 70% instead of 50%), change the threshold in the `if (p <= 50)` line. To use a blue→purple→pink gradient instead of green→yellow→red, replace the RGB formulas — both scripts share the same logic so update both.
 
-**Wider or narrower bars** — Change `cells=10` in `render_bar`. 5 cells is more compact; 20 cells gives finer visual granularity at the cost of line length.
+**Wider or narrower bars** — Change `cells=5` in `render_bar` and keep the per-cell step at `100/cells` (`p/20` and `rem >= 10` for 5 cells; `p/10` and `rem >= 5` for 10). 5 cells is compact; 10 or 20 give finer visual granularity at the cost of line length. The PowerShell script and `assets/perf/statusline-compute.sh` carry the same logic — update all three.
+
+**Track color** — The empty cells and the half-cell background use RGB(62,62,62), which suits a dark terminal. On a light terminal use a light gray such as `210;210;210` instead (every `62;62;62` in `render_bar`, or `62;62;62` in `Render-Bar`).
 
 ## What Claude Code feeds the script
 

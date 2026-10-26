@@ -1,7 +1,7 @@
 #!/bin/bash
 # Claude Code statusline — bash / macOS / Linux.
 # Reads JSON from stdin, prints one colored line:
-#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
+#   📊 Context: █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
 # Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
 # Requires a terminal with 24-bit color (any modern macOS/Linux terminal qualifies).
 #
@@ -39,24 +39,27 @@ fmt_k() {
 used_k=$(fmt_k "$tokens_used")
 total_k=$(fmt_k "$ctx_size")
 
-# Render a 10-cell bar with half-cell ▓ resolution. Color is a smooth truecolor
-# gradient from green (0%) → yellow (50%) → red (100%).
+# Render a 5-cell bar with half-cell ▌ resolution. Color is a smooth truecolor
+# gradient from green (0%) → yellow (50%) → red (100%); the empty part is a flat
+# dark-gray track, and a half cell is the bar color on a track-colored background.
 render_bar() {
   local pct=$1
   awk -v p="$pct" 'BEGIN {
-    cells=10;
-    full=int(p/10);
-    rem=p - full*10;
-    half=(rem >= 5 && full < cells) ? 1 : 0;
+    cells=5;
+    full=int(p/20);
+    rem=p - full*20;
+    half=(rem >= 10 && full < cells) ? 1 : 0;
     if (p < 0) p=0; if (p > 100) p=100;
     if (p <= 50) { r=int(p/50*255+0.5); g=255 }
     else         { r=255; g=int((100-p)/50*255+0.5) }
     b=0;
-    out="";
+    track="\033[38;2;62;62;62m";
+    out=sprintf("\033[38;2;%d;%d;%dm", r, g, b);
     for (i=0; i<full; i++) out=out "█";
-    if (half) { out=out "▓"; full++ }
-    for (i=full; i<cells; i++) out=out "░";
-    printf "\033[38;2;%d;%d;%dm%s\033[0m", r, g, b, out;
+    if (half) { out=out "\033[48;2;62;62;62m▌\033[49m"; full++ }
+    out=out track;
+    for (i=full; i<cells; i++) out=out "█";
+    printf "%s\033[0m", out;
   }'
 }
 

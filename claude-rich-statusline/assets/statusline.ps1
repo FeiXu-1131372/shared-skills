@@ -1,6 +1,6 @@
 # Claude Code statusline — PowerShell / Windows.
 # Reads JSON from stdin, prints one colored line:
-#   📊 Context: ▓░░░░░░░░░ 9% (90k/1000k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │ 7d: ▓░░░░░░░░░ 6% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~\Developer\my-project │ Branch: main │ 116.1 tok/s
+#   📊 Context: █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~\Developer\my-project │ Branch: main │ 116.1 tok/s
 # Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
 # Requires Windows Terminal (or any host with VT / 24-bit color enabled).
 # Compatible with Windows PowerShell 5.1+ and PowerShell 7+. No external deps —
@@ -73,22 +73,23 @@ function Format-K([int]$n) {
 function Render-Bar([int]$p) {
     if ($p -lt 0)   { $p = 0 }
     if ($p -gt 100) { $p = 100 }
-    $cells = 10
-    $full  = [int][math]::Floor($p / 10)
-    $rem   = $p - $full * 10
-    $half  = ($rem -ge 5) -and ($full -lt $cells)
+    $cells = 5
+    $full  = [int][math]::Floor($p / 20)
+    $rem   = $p - $full * 20
+    $half  = ($rem -ge 10) -and ($full -lt $cells)
 
     if ($p -le 50) { $r = [int][math]::Round($p / 50.0 * 255); $g = 255 }
     else           { $r = 255; $g = [int][math]::Round((100 - $p) / 50.0 * 255) }
     $b = 0
 
-    $sb = New-Object System.Text.StringBuilder
-    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }   # █
-    if ($half) { [void]$sb.Append([char]0x2593); $full++ }                # ▓
-    for ($i = $full; $i -lt $cells; $i++) { [void]$sb.Append([char]0x2591) } # ░
-
     $esc = [char]27
-    return "$esc[38;2;$r;$g;${b}m$($sb.ToString())$esc[0m"
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append("$esc[38;2;$r;$g;${b}m")
+    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }   # █
+    if ($half) { [void]$sb.Append("$esc[48;2;62;62;62m").Append([char]0x258C).Append("$esc[49m"); $full++ } # ▌ on track
+    [void]$sb.Append("$esc[38;2;62;62;62m")
+    for ($i = $full; $i -lt $cells; $i++) { [void]$sb.Append([char]0x2588) } # empty track
+    return "$($sb.ToString())$esc[0m"
 }
 
 function Format-Countdown([int]$secs) {
