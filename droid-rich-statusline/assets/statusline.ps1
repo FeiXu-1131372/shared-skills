@@ -2,8 +2,8 @@
 #
 # One line, same shape as the bash version and the Claude Code rich statusline:
 #
-#   📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │
-#   7d: ▓░░░░░░░░░ 6% (2d10h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
+#   📊 █▌░░░ 35% (140k/400k) │ 5h: █░░░░ 28% (2h32m) │
+#   7d: ███░░ 66% (2d10h) │ Month: ▌░░░░ 14% (25d4h) │ 📁 web-business │ 116.1 tok/s
 #
 # Context and the working directory come from the JSON Droid pipes in on every
 # tick. The Factory plan numbers do not — they need the billing limits API, so
@@ -129,28 +129,31 @@ function Format-Percent([double]$p) {
     return "$([int][math]::Round($p))"
 }
 
-# 10-cell bar with half-cell ▓ resolution. Color is a smooth truecolor gradient
+# 5-cell bar with half-cell ▌ resolution. Color is a smooth truecolor gradient
 # from green (0%) → yellow (50%) → red (100%), so the bar's hue itself encodes
 # severity — you can read the line peripherally without parsing the numbers.
+# The empty part is a flat dark-gray track, and a half cell is the bar color on
+# a track-colored background.
 function Render-Bar([double]$p) {
     if ($p -lt 0)   { $p = 0 }
     if ($p -gt 100) { $p = 100 }
 
-    $cells = 10
-    $full  = [int][math]::Floor($p / 10)
-    $rem   = $p - $full * 10
-    $half  = ($rem -ge 5) -and ($full -lt $cells)
+    $cells = 5
+    $full  = [int][math]::Floor($p / 20)
+    $rem   = $p - $full * 20
+    $half  = ($rem -ge 10) -and ($full -lt $cells)
 
     if ($p -le 50) { $r = [int][math]::Round($p / 50.0 * 255); $g = 255 }
     else           { $r = 255; $g = [int][math]::Round((100 - $p) / 50.0 * 255) }
 
-    $sb = [System.Text.StringBuilder]::new()
-    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }      # █
-    if ($half) { [void]$sb.Append([char]0x2593); $full++ }                   # ▓
-    for ($i = $full; $i -lt $cells; $i++) { [void]$sb.Append([char]0x2591) } # ░
-
     $esc = [char]27
-    return "$esc[38;2;$r;$g;0m$($sb.ToString())$esc[0m"
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append("$esc[38;2;$r;$g;0m")
+    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }      # █
+    if ($half) { [void]$sb.Append("$esc[48;2;62;62;62m").Append([char]0x258C).Append("$esc[49m"); $full++ } # ▌ on track
+    [void]$sb.Append("$esc[38;2;62;62;62m")
+    for ($i = $full; $i -lt $cells; $i++) { [void]$sb.Append([char]0x2588) } # empty track
+    return "$($sb.ToString())$esc[0m"
 }
 
 # Coarsest useful unit, so a month-long window reads "25d" not "600h".
@@ -203,9 +206,9 @@ if ($null -ne $ctxPct) {
     $ctxLabel = Format-Percent ([double]$ctxPct)
     $bar = Render-Bar ([double]$ctxPct)
     if ($null -ne $ctxUsed -and $null -ne $ctxTotal) {
-        $segments.Add("📊 Context: $bar $ctxLabel% ($(Format-K ([double]$ctxUsed))/$(Format-K ([double]$ctxTotal)))")
+        $segments.Add("📊 $bar $ctxLabel% ($(Format-K ([double]$ctxUsed))/$(Format-K ([double]$ctxTotal)))")
     } else {
-        $segments.Add("📊 Context: $bar $ctxLabel%")
+        $segments.Add("📊 $bar $ctxLabel%")
     }
 }
 

@@ -1,6 +1,6 @@
 ---
 name: droid-rich-statusline
-description: Install or configure a feature-rich Factory Droid status line that displays real-time context window usage with a colored progress bar (e.g. "📊 Context: ▓░░░░░░░░░ 9% (36k/400k)"), the Factory plan's 5-hour, weekly and monthly consumption with reset countdowns (e.g. "5h: ██▓░░░░░░░ 28% (2h32m)"), the current working directory, and the generation speed of the latest model call (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux and Windows. Use this skill whenever the user asks to set up a Droid status line, configure the statusLine field in ~/.factory/settings.json, see context window usage in their terminal, monitor Factory plan limits / FSC consumption, see how close they are to their 5-hour or weekly cap, or wants any kind of real-time visibility into their Droid session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Factory Droid status line that displays real-time context window usage with a colored progress bar (e.g. "📊 █▌░░░ 35% (140k/400k)"), the Factory plan's 5-hour, weekly and monthly consumption with reset countdowns (e.g. "5h: █░░░░ 28% (2h32m)"), the current working directory, and the generation speed of the latest model call (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux and Windows. Use this skill whenever the user asks to set up a Droid status line, configure the statusLine field in ~/.factory/settings.json, see context window usage in their terminal, monitor Factory plan limits / FSC consumption, see how close they are to their 5-hour or weekly cap, or wants any kind of real-time visibility into their Droid session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Droid Statusline
@@ -10,10 +10,10 @@ Droid can run a shell command on every redraw and show its stdout as a status li
 Sample output (the color lives in the bars themselves, gradient green → yellow → red):
 
 ```
-📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ░░░░░░░░░░ 2% (4h24m) │ 7d: █░░░░░░░░░ 10% (2d4h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
+📊 █▌░░░ 35% (140k/400k) │ 5h: ░░░░░ 2% (4h24m) │ 7d: ▌░░░░ 10% (2d4h) │ Month: ░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
 ```
 
-Every segment is independent, and each one drops out silently when its data is unavailable. The line degrades in this order:
+Every segment is independent, and each one drops out silently when its data is unavailable. To save width the context segment is marked by its 📊 icon rather than a text label; `5h` / `7d` / `Month` keep theirs because they tell the plan bars apart. The line degrades in this order:
 
 - **No `node`** → no `5h` / `7d` / `Month` segments. Context, directory and speed still render.
 - **No `jq`** (macOS/Linux) → the script prints one short install hint and nothing else.
@@ -21,7 +21,7 @@ Every segment is independent, and each one drops out silently when its data is u
 - **No `context` in the payload** → no Context segment.
 - **No readable `transcript_path` / `session_settings_path`**, or the latest call was too short to time → no `tok/s` segment.
 
-**Visual encoding.** Bars are 10 cells wide with `▓` half-cell resolution (so 23% reads as `██░`, not jumping straight to `███`). Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%. Severity is glanceable from the hue alone — peripheral vision picks up "the bars are going orange" without reading a single number.
+**Visual encoding.** Bars are 5 cells wide (20% per cell) with a `▌` half block for the 10% step in between, rounded down (so 30% reads as `█▌░░░` rather than jumping from `█░░░░` to `██░░░`). The empty part is a flat dark-gray track (`░` in the samples here), and a half cell is the bar color on a track-colored background. Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%. Severity is glanceable from the hue alone — peripheral vision picks up "the bars are going orange" without reading a single number.
 
 ## When to use this skill
 
@@ -44,7 +44,7 @@ Don't trigger for:
 
 | Segment | Source | Why |
 |---|---|---|
-| `📊 Context` | Droid's payload | Droid's own compaction meter, so it matches the threshold Droid acts on |
+| `📊` context bar | Droid's payload | Droid's own compaction meter, so it matches the threshold Droid acts on |
 | `5h` / `7d` / `Month` | Factory billing API | Droid's payload carries no usage data at all |
 | `📁 <dir>` | Droid's payload | Which project this tab is pointed at |
 | `tok/s` | Droid's session files | The payload has no timing or output-token fields, so the two session files it points at supply them (see "Generation speed") |
@@ -252,7 +252,9 @@ Both scripts are deliberately readable, with one section per segment.
 
 **Different gradient** — in `render_bar`, `0%` → RGB(0,255,0), `50%` → RGB(255,255,0), `100%` → RGB(255,0,0). Change the `p <= 50` threshold to move the yellow point; change the RGB formulas for a different ramp. Update both scripts if you change it.
 
-**Wider or narrower bars** — change `cells=10`. 5 is compact, 20 gives finer resolution at the cost of length.
+**Wider or narrower bars** — change `cells=5` and keep the per-cell step at `100/cells` (`p/20` and `rem >= 10` for 5 cells; `p/10` and `rem >= 5` for 10). 5 is compact; 10 or 20 give finer resolution at the cost of length. Update both scripts.
+
+**Track color** — the empty cells and the half-cell background use RGB(62,62,62), which suits a dark terminal. On a light terminal use a light gray such as `210;210;210` instead (every `62;62;62` in `render_bar`, or in `Render-Bar`).
 
 ## What Droid feeds the script
 

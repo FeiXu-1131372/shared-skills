@@ -3,8 +3,8 @@
 #
 # One line, same shape as the Claude Code rich statusline:
 #
-#   📊 Context: ▓░░░░░░░░░ 9% (36k/400k) │ 5h: ██▓░░░░░░░ 28% (2h32m) │
-#   7d: ▓░░░░░░░░░ 6% (2d10h) │ Month: ▓░░░░░░░░░ 5% (25d4h) │ 📁 web-business │ 116.1 tok/s
+#   📊 █▌░░░ 35% (140k/400k) │ 5h: █░░░░ 28% (2h32m) │
+#   7d: ███░░ 66% (2d10h) │ Month: ▌░░░░ 14% (25d4h) │ 📁 web-business │ 116.1 tok/s
 #
 # Context and the working directory come from the JSON Droid pipes in on every
 # tick. The Factory plan numbers do not — they need the billing limits API, so a
@@ -74,23 +74,27 @@ case "$cwd" in ""|".") cwd="$PWD" ;; esac
 
 # --- rendering helpers ------------------------------------------------------
 
-# 10-cell bar with half-cell ▓ resolution. Color is a smooth truecolor gradient
+# 5-cell bar with half-cell ▌ resolution. Color is a smooth truecolor gradient
 # from green (0%) → yellow (50%) → red (100%), so the bar's hue itself encodes
 # severity — you can read the line peripherally without parsing the numbers.
+# The empty part is a flat dark-gray track, and a half cell is the bar color on
+# a track-colored background.
 render_bar() {
   awk -v p="$1" 'BEGIN {
-    cells=10;
+    cells=5;
     if (p < 0) p=0; if (p > 100) p=100;
-    full=int(p/10);
-    rem=p - full*10;
-    half=(rem >= 5 && full < cells) ? 1 : 0;
+    full=int(p/20);
+    rem=p - full*20;
+    half=(rem >= 10 && full < cells) ? 1 : 0;
     if (p <= 50) { r=int(p/50*255+0.5); g=255 }
     else         { r=255; g=int((100-p)/50*255+0.5) }
-    out="";
+    track="\033[38;2;62;62;62m";
+    out=sprintf("\033[38;2;%d;%d;%dm", r, g, 0);
     for (i=0; i<full; i++) out=out "█";
-    if (half) { out=out "▓"; full++ }
-    for (i=full; i<cells; i++) out=out "░";
-    printf "\033[38;2;%d;%d;%dm%s\033[0m", r, g, 0, out;
+    if (half) { out=out "\033[48;2;62;62;62m▌\033[49m"; full++ }
+    out=out track;
+    for (i=full; i<cells; i++) out=out "█";
+    printf "%s\033[0m", out;
   }'
 }
 
@@ -136,9 +140,9 @@ if [ -n "$ctx_pct" ]; then
   ctx_int=$(awk -v p="$ctx_pct" 'BEGIN { printf "%.0f", p }')
   ctx_label=$(fmt_percent "$ctx_pct")
   if [ -n "$ctx_used" ] && [ -n "$ctx_total" ]; then
-    append "📊 Context: $(render_bar "$ctx_int") ${ctx_label}% ($(fmt_tokens "$ctx_used")/$(fmt_tokens "$ctx_total"))"
+    append "📊 $(render_bar "$ctx_int") ${ctx_label}% ($(fmt_tokens "$ctx_used")/$(fmt_tokens "$ctx_total"))"
   else
-    append "📊 Context: $(render_bar "$ctx_int") ${ctx_label}%"
+    append "📊 $(render_bar "$ctx_int") ${ctx_label}%"
   fi
 fi
 
