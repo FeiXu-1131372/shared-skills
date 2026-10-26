@@ -1,6 +1,6 @@
 ---
 name: claude-rich-statusline
-description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "Context █▌░░░ 35% (350k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "📊 █▌░░░ 35% (350k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Claude Code Statusline
@@ -10,10 +10,10 @@ Claude Code can run a custom shell command on every message and display its sing
 Sample output (color in the bars themselves, gradient green→yellow→red):
 
 ```
-📊 Context: █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
+📊 █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Opus 4.7 (high) │ ~/Developer/my-project │ Branch: main │ 116.1 tok/s
 ```
 
-Each segment is independent. The 5h / 7d segments are dropped silently when Claude Code doesn't supply rate-limit data (some auth states omit it). The effort suffix on the model (`(high)`, `(xhigh)`, …) is dropped when the model has no effort level. `Dir:` shows the workspace directory with `$HOME` abbreviated to `~`. The branch is dropped when the workspace isn't a git repo.
+Each segment is independent. The 5h / 7d segments are dropped silently when Claude Code doesn't supply rate-limit data (some auth states omit it). The effort suffix on the model (`(high)`, `(xhigh)`, …) is dropped when the model has no effort level. To save width the context, model and directory segments carry no text label (📊 marks the context bar); the directory is the workspace directory with `$HOME` abbreviated to `~`. The branch is dropped when the workspace isn't a git repo.
 
 **Generation speed (`tok/s`).** The last segment is the speed of the *latest* response only — not an average — so it tells you how fast the model is running right now. It is the output tokens of that response divided by the API time it took (the growth in `cost.total_api_duration_ms` since the previous status-line update). See "Generation speed" below for what it does and doesn't measure.
 

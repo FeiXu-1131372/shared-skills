@@ -155,7 +155,7 @@ if [ -n "$sid" ] && [ -n "$api_ms" ] && [ -n "$out_tok" ]; then
 fi
 
 ctx_bar=$(render_bar "$pct_int")
-line="📊 Context: ${ctx_bar} ${pct_int}% (${used_k}/${total_k})"
+line="📊 ${ctx_bar} ${pct_int}% (${used_k}/${total_k})"
 
 if [ -n "${five_pct:-}" ]; then
   five_int=$(awk -v p="$five_pct" 'BEGIN { printf "%.0f", p }')
@@ -184,7 +184,7 @@ if [ -n "$effort" ]; then
   model="${model} (${effort})"
 fi
 
-line="${line} │ Model: ${model} │ Dir: ${dir}"
+line="${line} │ ${model} │ ${dir}"
 
 if [ -n "$branch" ]; then
   line="${line} │ Branch: ${branch}"

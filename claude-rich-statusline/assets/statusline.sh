@@ -1,7 +1,7 @@
 #!/bin/bash
 # Claude Code statusline — bash / macOS / Linux.
 # Reads JSON from stdin, prints one colored line:
-#   📊 Context: █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~/Developer/my-project │ Branch: main │ 116.1 tok/s
+#   📊 █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Opus 4.7 (high) │ ~/Developer/my-project │ Branch: main │ 116.1 tok/s
 # Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
 # Requires a terminal with 24-bit color (any modern macOS/Linux terminal qualifies).
 #
@@ -160,7 +160,7 @@ if [ -n "$sid" ] && [ -n "$api_ms" ] && [ -n "$out_tok" ]; then
 fi
 
 ctx_bar=$(render_bar "$pct_int")
-line="📊 Context: ${ctx_bar} ${pct_int}% (${used_k}/${total_k})"
+line="📊 ${ctx_bar} ${pct_int}% (${used_k}/${total_k})"
 
 # 5-hour rate limit. Skip silently if Claude Code didn't supply it.
 if [ -n "${five_pct:-}" ]; then
@@ -191,7 +191,7 @@ if [ -n "$effort" ]; then
   model="${model} (${effort})"
 fi
 
-line="${line} │ Model: ${model} │ Dir: ${dir}"
+line="${line} │ ${model} │ ${dir}"
 
 if [ -n "$branch" ]; then
   line="${line} │ Branch: ${branch}"

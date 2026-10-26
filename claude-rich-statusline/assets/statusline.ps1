@@ -1,6 +1,6 @@
 # Claude Code statusline — PowerShell / Windows.
 # Reads JSON from stdin, prints one colored line:
-#   📊 Context: █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Model: Opus 4.7 (high) │ Dir: ~\Developer\my-project │ Branch: main │ 116.1 tok/s
+#   📊 █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Opus 4.7 (high) │ ~\Developer\my-project │ Branch: main │ 116.1 tok/s
 # Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
 # Requires Windows Terminal (or any host with VT / 24-bit color enabled).
 # Compatible with Windows PowerShell 5.1+ and PowerShell 7+. No external deps —
@@ -197,7 +197,7 @@ $usedK  = Format-K $tokensUsed
 $totalK = Format-K $ctxSize
 
 $ctxBar = Render-Bar $pctInt
-$line   = "📊 Context: $ctxBar $pctInt% ($usedK/$totalK)"
+$line   = "📊 $ctxBar $pctInt% ($usedK/$totalK)"
 
 if ($null -ne $fivePct) {
     $fiveInt = [int][math]::Round([double]$fivePct)
@@ -224,7 +224,7 @@ if ($null -ne $sevenPct) {
 # Reasoning effort is absent for models that don't support it.
 if ($effort) { $model = "$model ($effort)" }
 
-$line = "$line │ Model: $model │ Dir: $dir"
+$line = "$line │ $model │ $dir"
 if ($branch) { $line = "$line │ Branch: $branch" }
 if ($speed) { $line = "$line │ $speed tok/s" }
 
