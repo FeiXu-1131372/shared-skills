@@ -17,7 +17,7 @@ Every segment is independent, and each one drops out silently when its data is u
 
 - **No `node`** → no `5h` / `7d` / `Month` segments. Context, directory and speed still render.
 - **No `jq`** (macOS/Linux) → the script prints one short install hint and nothing else.
-- **Credentials in the OS keychain only** → no usage segments (see "Known limits").
+- **Credentials in the OS keychain only** → no usage segments on macOS/Linux (see "Known limits"). Windows reads its Credential Manager key, so it is not affected.
 - **No `context` in the payload** → no Context segment.
 - **No readable `transcript_path` / `session_settings_path`**, or the latest call was too short to time → no `tok/s` segment.
 
@@ -199,11 +199,14 @@ This is the only non-obvious part of the install, so it is worth understanding b
 
 | Location | Notes |
 |---|---|
-| `auth.v2.keyring` / `auth.v2.loginkeychain` | OS keychain — macOS Keychain, Windows Credential Manager, libsecret. **Not read** by this skill. |
-| `auth.v2.file` + `auth.v2.key` | Encrypted file. This is what the worker reads. |
+| `auth.v2.keyring` | Same format as `auth.v2.file`, but its key lives in the OS keychain (Windows Credential Manager, macOS Keychain, libsecret). **Read on Windows only**, and only when it is newer than `auth.v2.file`. |
+| `auth.v2.loginkeychain` | macOS login-keychain variant. **Not read** by this skill. |
+| `auth.v2.file` + `auth.v2.key` | Encrypted file. This is what the worker reads everywhere else, and on Windows whenever it is newer than the keyring. |
 | `auth.json` | Plain JSON, oldest format. Read as a fallback. |
 
-The encrypted file is `base64(iv):base64(authTag):base64(ciphertext)`, AES-256-GCM, key from `auth.v2.key`. The worker re-reads it on every refresh, so a token Droid rotates is picked up automatically.
+The encrypted files are `base64(iv):base64(authTag):base64(ciphertext)`, AES-256-GCM. The worker re-reads them on every refresh, so a token Droid rotates is picked up automatically.
+
+**Windows and the keyring.** Once Droid moves to `auth.v2.keyring`, it stops rewriting `auth.v2.file`, so that file's token expires and every billing call fails with `HTTP 401` (the log says so). To avoid that, the worker compares the two files' modification times. If the keyring is newer, it asks the built-in `powershell.exe` for the AES key Droid stores in Credential Manager under `Factory CLI/auth-encryption-key`, then decrypts the keyring in memory. That costs about half a second of the roughly two-second background refresh, which is detached, and runs at most once a minute. If `auth.v2.file` is newer, PowerShell is never started. The key is never written to disk or the log, and if anything about the keyring fails the worker falls back to the file and logs the reason. macOS and Linux behave exactly as before.
 
 **Nothing is written back to Factory.** The worker only performs a `GET`. It does not refresh tokens, change settings, or touch your account.
 
@@ -290,9 +293,11 @@ Notes:
 
 ## Known limits
 
-**Keychain-only credentials.** If a machine stores its credentials *only* in `auth.v2.keyring` (or `auth.v2.loginkeychain`) with no `auth.v2.file`, the worker cannot read them and the usage segments stay hidden. Context and directory still work. The worker logs why to `~/.factory/statusline-usage.log`. This is a deliberate trade: reading the OS keychain would mean shipping a native keyring dependency for one optional segment.
+**Keychain-only credentials (macOS/Linux).** If a machine stores its credentials *only* in the OS keychain (`auth.v2.keyring` or `auth.v2.loginkeychain`) with no current `auth.v2.file`, the worker cannot read them and the usage segments stay hidden. Context and directory still work. The worker logs why to `~/.factory/statusline-usage.log`. This is a deliberate trade: reading those keychains would mean shipping a native dependency for one optional segment. Windows is covered by the PowerShell route above.
 
-**Token expiry.** The API needs a valid access token, which Droid rotates roughly every 20 hours. The worker re-reads the credential file each time, so rotation is handled automatically as long as Droid is in use. If the machine sits idle for a long stretch the usage segments may drop out until Droid refreshes.
+**Windows keyring depends on Droid internals.** The Credential Manager entry name (`Factory CLI/auth-encryption-key`) and its format (base64 text of a 32-byte key) are Droid implementation details, not a documented interface. If an update changes them, the keyring read fails, the worker logs `auth.v2.keyring unusable (...)`, and it falls back to `auth.v2.file`. If that file is stale too, the log shows `HTTP 401` and the usage segments stay hidden until the script is adjusted.
+
+**Token expiry.** The API needs a valid access token, which Droid rotates roughly every 20 hours. The worker re-reads the credential files each time, so rotation is handled automatically as long as Droid is in use. If the machine sits idle for a long stretch the usage segments may drop out until Droid refreshes.
 
 **Plan shape.** The worker reads `limits.standard` and falls back to `limits.core`, preferring whichever has a live window, so it matches the Factory dashboard on both metered styles.
 
