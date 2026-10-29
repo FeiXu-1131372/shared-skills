@@ -1,6 +1,6 @@
 ---
 name: claude-rich-statusline
-description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "📊 █▌░░░ 35% (350k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
+description: Install or configure a feature-rich Claude Code statusline that displays real-time context window usage with a colored progress bar (e.g. "📊 █▌░░░ 35% (350k/1000k)"), 5-hour and weekly rate-limit consumption with reset countdowns, current model with its reasoning effort, current directory, git branch, and the generation speed of the latest response (e.g. "116.1 tok/s"). It can also restyle the subagent rows in the agents panel to match, with each subagent's model, reasoning effort, elapsed time, token count and tok/s. Bars use a smooth green→yellow→red truecolor gradient so the hue itself encodes severity. Works on macOS, Linux, and Windows (Windows Terminal + PowerShell). Use this skill whenever the user asks to set up a Claude Code status line, configure the statusLine field, see context window usage in their terminal, monitor Claude rate limits / token consumption, see how close they are to hitting their 5-hour or weekly limits, or wants any kind of real-time visibility into their Claude session — even if they don't explicitly say "statusline".
 ---
 
 # Rich Claude Code Statusline
@@ -18,6 +18,8 @@ Each segment is independent. The 5h / 7d segments are dropped silently when Clau
 **Generation speed (`tok/s`).** The last segment is the speed of the *latest* response only — not an average — so it tells you how fast the model is running right now. It is the output tokens of that response divided by the API time it took (the growth in `cost.total_api_duration_ms` since the previous status-line update). See "Generation speed" below for what it does and doesn't measure.
 
 **Visual encoding.** Bars are 5 cells wide (20% per cell) with a `▌` half block for the 10% step in between, rounded down (so 30% reads as `█▌░░░` rather than jumping from `█░░░░` to `██░░░`). The empty part is a flat dark-gray track (`░` in the samples here), and a half cell is the bar color on a track-colored background. Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%, interpolated linearly. Severity is glanceable from the hue alone — no need to read the number.
+
+**Subagent rows (optional, macOS / Linux).** The list of running subagents below the prompt normally shows only a name, a description and a token count. The skill can restyle those rows to match this line: agent type, model with its effort, elapsed time, tokens, tok/s and what the agent is doing right now. See "Subagent rows" below.
 
 ## When to use this skill
 
@@ -271,9 +273,58 @@ Then either restore the self-contained `statusline.sh` from `assets/statusline.s
 - Systems where you don't want background processes running for any reason (the daemon is ~0.1% CPU but it's still always-on).
 - The default `statusline.sh` already feels snappy — no need to add complexity.
 
+### Subagent rows (optional, macOS / Linux)
+
+Claude Code's `subagentStatusLine` setting replaces the text of each row in the running-subagents list. It works like `statusLine`: a command that gets JSON on stdin and prints one JSON object per row. Sample rows (the elapsed time is colored green→red by age, over one hour):
+
+```
+general-purpose │ sonnet 5.5 (high) │ 19m14s │ ↓ 238.8k │ 412 tok/s │ Research 考刻 六亲验证方法 · 正在比对八卦加则
+general-purpose │ opus 5.5 (xhigh) │ 2h34m │ ↓ 118.1k │ S4 glossary + explain layer
+```
+
+Needs Claude Code 2.1.293 or later for `agentType` (older versions fall back to the task name). Only worth offering if the user uses subagents; skip it otherwise.
+
+#### Install
+
+```bash
+mkdir -p ~/.claude
+cp <skill-path>/assets/subagent-statusline.sh ~/.claude/subagent-statusline.sh
+chmod +x ~/.claude/subagent-statusline.sh
+```
+
+If `~/.claude/subagent-statusline.sh` already exists, stop and ask before overwriting, same as Step 2. Then `Read` and `Edit` `~/.claude/settings.json` to add (merge with existing keys, don't replace the file):
+
+```json
+"subagentStatusLine": {
+  "type": "command",
+  "command": "bash ~/.claude/subagent-statusline.sh"
+}
+```
+
+Smoke test with a fake task (should print one JSON line with the model and effort in `content`):
+
+```bash
+echo '{"tasks":[{"id":"t1","agentType":"general-purpose","status":"running","description":"demo","label":"Running tests","startTime":'"$(( $(date +%s) * 1000 - 65000 ))"',"model":"claude-opus-5-5","tokenCount":120000}]}' | bash ~/.claude/subagent-statusline.sh
+```
+
+Then restart Claude Code (Step 5). The setting is subject to the same trust and `disableAllHooks` / `allowManagedHooksOnly` rules as `statusLine`.
+
+#### What each row shows
+
+Segments are dropped when their field is missing, and the description goes last so a narrow terminal clips it rather than the numbers.
+
+- **Agent type** (`agentType`, else `name`).
+- **Model and effort.** The model id is shortened (`claude-sonnet-5-5` → `sonnet 5.5`). Claude Code sends `effort` only when the agent set one itself, and it is normally `null`. In that case the script shows what `~/.claude/settings.json` would give the model (`modelSettings.<id>.effortLevel`, else `effortLevel`) in **dim brackets** to mark it as inferred. It is wrong if an agent's own frontmatter overrides the effort, and a model with no `modelSettings` entry gets the global value even if it has no effort levels.
+- **Elapsed time** from `startTime` (epoch ms, epoch seconds or ISO), colored with the same gradient as the bars.
+- **Tokens** (`↓ 238.8k`), from `tokenCount`.
+- **tok/s.** Claude Code gives only a running token total, so the speed is the growth of `tokenCount` over a window of at least 5 s, kept in `~/.claude/subagent-speed/<task id>` (files older than a day are pruned). `tokenCount` also grows when a tool result lands in the agent's context, so a big file read can look like a spike; windows above 3000 tok/s are ignored and the previous figure stays. Nothing is shown until the first window is measured, or while the count isn't moving.
+- **Description · activity.** `description` is the task name; `label` is what the agent is doing now, dimmed.
+
+The script also saves its raw stdin to `~/.claude/subagent_statusline_snapshot.json`, which is the quickest way to check field shapes if a row looks wrong. The Windows install has no subagent script yet.
+
 ### Step 5 (both platforms) — Reload
 
-Tell the user to **restart Claude Code** (or `/config reload` if available). The new line will appear below the prompt on the next message.
+Tell the user to **restart Claude Code** (or `/config reload` if available). The new line will appear below the prompt on the next message (and the new subagent rows, if installed).
 
 ## Truecolor support
 
@@ -344,6 +395,24 @@ Notes:
 - `effort` may be absent for models without reasoning-effort levels; the scripts then show the bare model name.
 - `rate_limits` may be absent in some auth states (e.g. raw API key without subscription metadata). Both scripts' fallbacks handle that — those segments simply don't appear.
 - `cost.total_api_duration_ms` is *cumulative* time spent in API calls this session, and `context_window.current_usage.output_tokens` is the output (including thinking) tokens of the *last* response only — not a running total. Those two are what the `tok/s` segment uses; the scripts fall back to `total_output_tokens` if `current_usage` is absent.
+
+For `subagentStatusLine` the input is a `tasks` array instead (a field is absent or `null` when unknown):
+
+```json
+{
+  "columns": 233,
+  "tasks": [{
+    "id": "ae942f0d358aba7a9", "type": "local_agent", "agentType": "general-purpose",
+    "status": "running", "description": "S4 glossary + explain layer",
+    "label": "Checking explain shim process", "startTime": 1793305994108,
+    "model": "claude-sonnet-5-5", "effort": null, "contextWindowSize": 1000000,
+    "tokenCount": 118114, "tokenSamples": [118114, "...16 readings..."],
+    "cwd": "/path/to/project"
+  }]
+}
+```
+
+Output is one `{"id": "<task id>", "content": "<row text>"}` per line; omit `id` to keep the default row, and an empty `content` hides it.
 
 ## Generation speed (`tok/s`)
 
