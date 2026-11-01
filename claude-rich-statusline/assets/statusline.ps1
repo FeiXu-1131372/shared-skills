@@ -1,14 +1,21 @@
-# Claude Code statusline — PowerShell / Windows.
-# Reads JSON from stdin, prints one colored line:
-#   📊 █▌░░░ 35% (350k/1000k) │ 5h: █░░░░ 28% (2h32m) │ 7d: ███░░ 66% (2d10h) │ Opus 4.7 (high) │ ~\Developer\my-project │ Branch: main │ 116.1 tok/s
-# Bar color is a smooth truecolor gradient: green (0%) → yellow (50%) → red (100%).
+# Claude Code statusline - PowerShell / Windows.
+# Reads JSON from stdin, prints one colored line with these segments:
+#   context bar, 5h bar, 7d bar, model (effort), directory, branch, tok/s
+# SKILL.md has a sample of the output.
+# Bar color is a smooth truecolor gradient: green (0%) -> yellow (50%) -> red (100%).
 # Requires Windows Terminal (or any host with VT / 24-bit color enabled).
-# Compatible with Windows PowerShell 5.1+ and PowerShell 7+. No external deps —
+# Compatible with Windows PowerShell 5.1+ and PowerShell 7+. No external deps:
 # uses built-in ConvertFrom-Json (no jq needed).
+#
+# Keep this file pure ASCII. Windows PowerShell 5.1 reads a .ps1 without a BOM
+# in the system ANSI code page, so a literal emoji or box-drawing character
+# turns into mojibake that can contain a curly quote. PowerShell treats that as
+# a closing quote, the script stops parsing, and the status line goes blank.
+# Write such characters as [char] escapes instead, as $chart and $sep do below.
 #
 # One small piece of state: the generation-speed segment (tok/s, last segment
 # of the line) keeps a tiny per-session file in ~\.claude\statusline-speed\ so
-# it can diff cost.total_api_duration_ms between ticks. It is idempotent —
+# it can diff cost.total_api_duration_ms between ticks. It is idempotent:
 # re-rendering the same snapshot never changes the number.
 
 $ErrorActionPreference = 'Stop'
@@ -17,8 +24,11 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 # Read JSON from stdin. Claude Code always pipes stdin in, so this is safe.
+# Decode it as UTF-8 explicitly: [Console]::In uses the console code page, which
+# garbles non-ASCII folder names and stops the Branch segment finding them.
 if ([Console]::IsInputRedirected) {
-    $inputJson = [Console]::In.ReadToEnd()
+    $stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.UTF8Encoding]::new())
+    $inputJson = $stdin.ReadToEnd()
 } else {
     $inputJson = ''
 }
@@ -85,8 +95,8 @@ function Render-Bar([int]$p) {
     $esc = [char]27
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("$esc[38;2;$r;$g;${b}m")
-    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }   # █
-    if ($half) { [void]$sb.Append("$esc[48;2;62;62;62m").Append([char]0x258C).Append("$esc[49m"); $full++ } # ▌ on track
+    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }   # full block
+    if ($half) { [void]$sb.Append("$esc[48;2;62;62;62m").Append([char]0x258C).Append("$esc[49m"); $full++ } # half block on track
     [void]$sb.Append("$esc[38;2;62;62;62m")
     for ($i = $full; $i -lt $cells; $i++) { [void]$sb.Append([char]0x2588) } # empty track
     return "$($sb.ToString())$esc[0m"
@@ -196,17 +206,21 @@ try {
 $usedK  = Format-K $tokensUsed
 $totalK = Format-K $ctxSize
 
+# Non-ASCII glyphs stay as escapes: see the note at the top of this file.
+$chart = [char]::ConvertFromUtf32(0x1F4CA)   # bar chart emoji
+$sep   = [char]0x2502                        # box-drawing vertical bar
+
 $ctxBar = Render-Bar $pctInt
-$line   = "📊 $ctxBar $pctInt% ($usedK/$totalK)"
+$line   = "$chart $ctxBar $pctInt% ($usedK/$totalK)"
 
 if ($null -ne $fivePct) {
     $fiveInt = [int][math]::Round([double]$fivePct)
     $fiveBar = Render-Bar $fiveInt
     if ($null -ne $fiveReset) {
         $fiveIn = Format-Countdown ([int]$fiveReset - $now)
-        $line = "$line │ 5h: $fiveBar $fiveInt% ($fiveIn)"
+        $line = "$line $sep 5h: $fiveBar $fiveInt% ($fiveIn)"
     } else {
-        $line = "$line │ 5h: $fiveBar $fiveInt%"
+        $line = "$line $sep 5h: $fiveBar $fiveInt%"
     }
 }
 
@@ -215,17 +229,17 @@ if ($null -ne $sevenPct) {
     $sevenBar = Render-Bar $sevenInt
     if ($null -ne $sevenReset) {
         $sevenIn = Format-Countdown ([int]$sevenReset - $now)
-        $line = "$line │ 7d: $sevenBar $sevenInt% ($sevenIn)"
+        $line = "$line $sep 7d: $sevenBar $sevenInt% ($sevenIn)"
     } else {
-        $line = "$line │ 7d: $sevenBar $sevenInt%"
+        $line = "$line $sep 7d: $sevenBar $sevenInt%"
     }
 }
 
 # Reasoning effort is absent for models that don't support it.
 if ($effort) { $model = "$model ($effort)" }
 
-$line = "$line │ $model │ $dir"
-if ($branch) { $line = "$line │ Branch: $branch" }
-if ($speed) { $line = "$line │ $speed tok/s" }
+$line = "$line $sep $model $sep $dir"
+if ($branch) { $line = "$line $sep Branch: $branch" }
+if ($speed) { $line = "$line $sep $speed tok/s" }
 
 [Console]::Out.Write($line)

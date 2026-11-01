@@ -147,17 +147,26 @@ If `statusline.ps1` already exists, **stop and ask** before overwriting (same ca
 
 #### Step 2 — Wire it into `settings.json`
 
-`~\.claude\settings.json` uses the same JSON format on Windows. Add (or merge):
+Get the script's path with forward slashes:
+
+```powershell
+(Join-Path $HOME '.claude\statusline.ps1') -replace '\\', '/'
+```
+
+`~\.claude\settings.json` uses the same JSON format on Windows. Add (or merge), with that path in place of `<script-path>`:
 
 ```json
 "statusLine": {
   "type": "command",
-  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\<name>\\.claude\\statusline.ps1"
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"<script-path>\"",
+  "refreshInterval": 60
 }
 ```
 
 Notes:
-- Replace `<name>` with the actual Windows username — `~` does **not** expand inside the `command` string. If the user has PowerShell 7 (`pwsh`) installed, prefer `pwsh` over `powershell` for ~3× faster startup, which makes the statusline noticeably more responsive.
+- **Keep the forward slashes and the quotes.** Claude Code runs this command through Git Bash when Git for Windows is installed, and through PowerShell when it isn't. Bash strips backslashes, so `C:\Users\me\...` reaches PowerShell as `C:Usersme...`: the script isn't found, and the status line stays blank with no visible error. Forward slashes work in both shells, and the quotes keep a path with spaces in one piece.
+- Use the full path. `~` does **not** expand inside the `command` string when PowerShell runs it.
+- If the user has PowerShell 7 (`pwsh`) installed, prefer `pwsh` over `powershell` for ~3× faster startup, which makes the statusline noticeably more responsive.
 - `-NoProfile` skips loading the user's profile (faster, deterministic).
 - `-ExecutionPolicy Bypass` is needed because Windows blocks unsigned scripts by default. Scoping it to this single invocation (rather than changing the system-wide policy) is the safer choice.
 
@@ -166,13 +175,14 @@ For an even faster startup using PowerShell 7:
 ```json
 "statusLine": {
   "type": "command",
-  "command": "pwsh -NoProfile -File C:\\Users\\<name>\\.claude\\statusline.ps1"
+  "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"<script-path>\"",
+  "refreshInterval": 60
 }
 ```
 
 #### Step 3 — Smoke test
 
-In Windows Terminal, run:
+This runs the command saved in `settings.json` through the same shell Claude Code will use, so it catches path and parsing problems that running the script directly would miss. In Windows Terminal, run:
 
 ```powershell
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -185,13 +195,36 @@ $payload = @{
     five_hour = @{ used_percentage = 23.5; resets_at = ($now + 4*3600 + 12*60) }
     seven_day = @{ used_percentage = 41.2; resets_at = ($now + 3*86400 + 5*3600) }
   }
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json -Depth 5 -Compress
 
-$payload | powershell -NoProfile -ExecutionPolicy Bypass -File "$HOME\.claude\statusline.ps1"
-Write-Host
+$command = (Get-Content (Join-Path $HOME '.claude\settings.json') -Raw | ConvertFrom-Json).statusLine.command
+
+# Find Git Bash the way Claude Code does. Without it, Claude Code uses PowerShell.
+$git = Get-Command git -ErrorAction SilentlyContinue
+$candidates = @($env:CLAUDE_CODE_GIT_BASH_PATH, "$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe")
+if ($git) { $candidates += Join-Path (Split-Path (Split-Path $git.Source)) 'bin\bash.exe' }
+$bash = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch { }
+if ($bash) {
+  $smoke = Join-Path $env:TEMP 'statusline-smoke.sh'
+  [IO.File]::WriteAllText($smoke, $command)
+  $output = $payload | & $bash $smoke
+} else {
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+  $output = $payload | powershell -NoProfile -NonInteractive -EncodedCommand $encoded
+}
+
+if ($LASTEXITCODE -eq 0 -and $output) { 'PASS'; $output } else { "FAIL (exit code $LASTEXITCODE)" }
 ```
 
-You should see the same colored bars as the macOS/Linux version. If the line shows raw escape codes like `␛[38;2;...m`, the host doesn't support virtual-terminal sequences — switch to Windows Terminal.
+You should see `PASS`, then the same colored bars as the macOS/Linux version. If the line shows raw escape codes like `␛[38;2;...m`, the host doesn't support virtual-terminal sequences — switch to Windows Terminal.
+
+If it prints `FAIL`, or the line is blank in Claude Code:
+
+- **`-File parameter does not exist`:** the path in `command` has backslashes or lost its quotes. Fix it as in Step 2.
+- **`Unexpected token` errors:** `statusline.ps1` contains a literal non-ASCII character. See the note at the top of that file.
+- **`PASS` here, but blank in Claude Code:** start Claude with `claude --debug-file "$env:TEMP\claude-debug.log"`, accept the trust prompt, and search that log for `StatusLine [`. The status line doesn't run in a folder that hasn't been trusted.
 
 ### Performance variant — thin reader + background daemon (optional)
 
@@ -345,7 +378,7 @@ The scripts are intentionally readable, with one section per segment. Common edi
 
 **Tune the tok/s noise filter** — In the speed block, `t >= 30 && d >= 500` ignores responses under 30 output tokens or 0.5 s of API time, and `<= 2000` discards impossible readings. Loosen the first two to show speed for very short replies (they read noisy), or change what happens when a response is skipped: today the previous figure stays on screen; to blank the segment instead, add `else new_rate=""` after the `new_rate="$r"` line (bash) or reset `$newRate = ''` when the filter fails (PowerShell).
 
-**Change emoji or labels** — Find the `line=` (bash) or `$line =` (PowerShell) assignments. Swap freely.
+**Change emoji or labels** — Find the `line=` (bash) or `$line =` (PowerShell) assignments. Swap freely. In `statusline.ps1`, write any non-ASCII character as an escape like `$sep`: a literal one stops the script parsing under Windows PowerShell 5.1.
 
 **Use wall-clock reset time instead of countdown** — Replace `fmt_countdown $(( five_reset - now ))` (bash) with `date -r $five_reset +%H:%M` (macOS) or `date -d @$five_reset +%H:%M` (Linux). On PowerShell: `[DateTimeOffset]::FromUnixTimeSeconds([int]$fiveReset).LocalDateTime.ToString('HH:mm')`.
 
