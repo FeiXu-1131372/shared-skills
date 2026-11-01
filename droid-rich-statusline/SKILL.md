@@ -146,16 +146,19 @@ As on macOS, **stop and ask** before overwriting an existing `statusline.ps1`.
 {
   "statusLine": {
     "type": "command",
-    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\<you>\\.factory\\statusline.ps1",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command . $HOME/.factory/statusline.ps1",
     "maxRows": 1
   }
 }
 ```
 
+Use that line exactly as written. It needs no username, and it works when the home folder has a space in it.
+
 Notes:
 
-- Replace `<you>` with the real username — `~` does **not** expand inside `command`.
-- If PowerShell 7 (`pwsh`) is installed, prefer it over `powershell`: noticeably faster startup, which makes the line feel snappier.
+- **Don't put double quotes in this command, and don't switch to `-File`.** Droid runs it with `cmd.exe /c` and escapes any double quotes on the way, so PowerShell receives a path with literal `"` characters and fails. Without quotes, `-File` can't take a path with a space. `-Command` avoids both, because PowerShell expands `$HOME` itself. `~` does **not** expand here.
+- **Don't swap `.` for `&`.** `cmd.exe` treats `&` as a command separator.
+- If PowerShell 7 (`pwsh`) is installed, prefer it over `powershell`: noticeably faster startup, which makes the line feel snappier. Change only the first word of the command.
 - `-NoProfile` keeps startup fast and deterministic. `-ExecutionPolicy Bypass` is scoped to this one invocation rather than loosening the machine-wide policy.
 
 ### Step 4 — Smoke test
@@ -168,7 +171,7 @@ Notes:
 To test the usage refresh on its own (it runs in the foreground and prints nothing on success):
 
 ```powershell
-powershell -NoProfile -File "$HOME\.factory\statusline.ps1" -RefreshOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File "$HOME\.factory\statusline.ps1" -RefreshOnly
 Get-Content "$HOME\.factory\statusline-usage.json"
 ```
 
@@ -178,7 +181,13 @@ Get-Content "$HOME\.factory\statusline-usage.json"
 droid statusline-probe
 ```
 
-Confirm `"ok": true`, then restart Droid. Use **Windows Terminal** — the legacy `conhost.exe` does not render 24-bit color or the block characters properly, and you will see raw `␛[38;2;...m` text instead of bars.
+Confirm `"ok": true` **and** that `stdout` holds the status line, then restart Droid. `"ok": true` alone doesn't prove it: if `-File` is given a bad path, PowerShell prints its `Windows PowerShell` banner to stdout and exits 0, and Droid accepts that. Use **Windows Terminal** — the legacy `conhost.exe` does not render 24-bit color or the block characters properly, and you will see raw `␛[38;2;...m` text instead of bars.
+
+If it fails:
+
+- **`stdout` shows `Windows PowerShell`, or `stderr` says `Processing -File`:** the command has double quotes or a space in a `-File` path. Use the command from Step 3 as written.
+- **`The term ... is not recognized`:** `statusline.ps1` isn't at `~\.factory\statusline.ps1`. Repeat Step 2.
+- **`Unexpected token` errors:** `statusline.ps1` contains a literal non-ASCII character. See the note at the top of that file.
 
 ## How the Factory usage numbers actually work
 
@@ -247,7 +256,7 @@ Both scripts are deliberately readable, with one section per segment.
 
 **Tune the tok/s noise filter** — in the speed block, `t >= 30 && d >= 0.5` skips calls under 30 output tokens or 0.5 s, and `t / d <= 2000` discards impossible readings (PowerShell: `$outTok -ge 30 -and $seconds -ge 0.5`, `$rate -le 2000`). Loosen the first two to show speed for very short replies; they read noisy. The `5h`/`7d`/`Month` loop is driven by a single list (`for window in fiveHour:5h weekly:7d monthly:Month`), so removing one entry is a one-line edit.
 
-**Change emoji or labels** — find the `append "…"` calls (bash) or `$segments.Add(…)` (PowerShell).
+**Change emoji or labels** — find the `append "…"` calls (bash) or `$segments.Add(…)` (PowerShell). In `statusline.ps1`, write any non-ASCII character as an escape like `$sep`: a literal one stops the script parsing under Windows PowerShell 5.1.
 
 **Show reset clock time instead of a countdown** — replace `fmt_countdown $(( end - now ))` with `date -r $end +%H:%M` (macOS) or `date -d @$end +%H:%M` (Linux). PowerShell: `[DateTimeOffset]::FromUnixTimeSeconds([int64]$end).LocalDateTime.ToString('HH:mm')`.
 
@@ -296,6 +305,8 @@ Notes:
 **Keychain-only credentials (macOS/Linux).** If a machine stores its credentials *only* in the OS keychain (`auth.v2.keyring` or `auth.v2.loginkeychain`) with no current `auth.v2.file`, the worker cannot read them and the usage segments stay hidden. Context and directory still work. The worker logs why to `~/.factory/statusline-usage.log`. This is a deliberate trade: reading those keychains would mean shipping a native dependency for one optional segment. Windows is covered by the PowerShell route above.
 
 **Windows keyring depends on Droid internals.** The Credential Manager entry name (`Factory CLI/auth-encryption-key`) and its format (base64 text of a 32-byte key) are Droid implementation details, not a documented interface. If an update changes them, the keyring read fails, the worker logs `auth.v2.keyring unusable (...)`, and it falls back to `auth.v2.file`. If that file is stale too, the log shows `HTTP 401` and the usage segments stay hidden until the script is adjusted.
+
+**Windows command depends on how Droid launches it.** As of Droid 0.244.0, the status line runs through `cmd.exe /c`, which is why Step 3 avoids double quotes. This isn't a documented interface. If an update changes it, rerun `droid statusline-probe` and adjust the command.
 
 **Token expiry.** The API needs a valid access token, which Droid rotates roughly every 20 hours. The worker re-reads the credential files each time, so rotation is handled automatically as long as Droid is in use. If the machine sits idle for a long stretch the usage segments may drop out until Droid refreshes.
 

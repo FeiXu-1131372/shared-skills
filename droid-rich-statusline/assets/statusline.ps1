@@ -1,12 +1,14 @@
-# Droid statusline — Windows (PowerShell).
+# Droid statusline - Windows (PowerShell).
 #
-# One line, same shape as the bash version and the Claude Code rich statusline:
+# One line, same shape as the bash version and the Claude Code rich statusline,
+# with these segments:
 #
-#   📊 █▌░░░ 35% (140k/400k) │ 5h: █░░░░ 28% (2h32m) │
-#   7d: ███░░ 66% (2d10h) │ Month: ▌░░░░ 14% (25d4h) │ 📁 web-business │ 116.1 tok/s
+#   context bar, 5h bar, 7d bar, month bar, directory, tok/s
+#
+# SKILL.md has a sample of the output.
 #
 # Context and the working directory come from the JSON Droid pipes in on every
-# tick. The Factory plan numbers do not — they need the billing limits API, so
+# tick. The Factory plan numbers do not: they need the billing limits API, so
 # this script refreshes a cache file in a detached child process and otherwise
 # only reads it.
 #
@@ -14,12 +16,19 @@
 # needs the two session files Droid points at in the payload, and keeps no state.
 #
 # Needs Windows Terminal (or any host with VT / 24-bit color), and PowerShell 5.1+.
-# No jq needed — ConvertFrom-Json is built in. The Factory plan numbers come from
+# No jq needed: ConvertFrom-Json is built in. The Factory plan numbers come from
 # a small Node worker (fetch-usage.mjs) spawned in the background; without Node
 # the line still renders context and directory. That is deliberate: the credential
 # file is AES-GCM with a 16-byte nonce, and .NET's AesGcm accepts only 12, so a
 # native PowerShell decrypt is not possible. One Node path serves every platform
 # and keeps the numbers identical.
+#
+# Keep this file pure ASCII. Windows PowerShell 5.1 reads a .ps1 without a BOM
+# in the system ANSI code page, so a literal emoji or box-drawing character
+# turns into mojibake that can contain a curly quote. PowerShell treats that as
+# a closing quote, the script stops parsing, and the status line goes blank.
+# Write such characters as [char] escapes instead, as $chart, $folder and $sep
+# do below.
 #
 # Invoke with -RefreshOnly to refresh the usage cache and exit.
 
@@ -129,9 +138,9 @@ function Format-Percent([double]$p) {
     return "$([int][math]::Round($p))"
 }
 
-# 5-cell bar with half-cell ▌ resolution. Color is a smooth truecolor gradient
-# from green (0%) → yellow (50%) → red (100%), so the bar's hue itself encodes
-# severity — you can read the line peripherally without parsing the numbers.
+# 5-cell bar with half-cell resolution. Color is a smooth truecolor gradient
+# from green (0%) -> yellow (50%) -> red (100%), so the bar's hue itself encodes
+# severity: you can read the line peripherally without parsing the numbers.
 # The empty part is a flat dark-gray track, and a half cell is the bar color on
 # a track-colored background.
 function Render-Bar([double]$p) {
@@ -149,8 +158,8 @@ function Render-Bar([double]$p) {
     $esc = [char]27
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.Append("$esc[38;2;$r;$g;0m")
-    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }      # █
-    if ($half) { [void]$sb.Append("$esc[48;2;62;62;62m").Append([char]0x258C).Append("$esc[49m"); $full++ } # ▌ on track
+    for ($i = 0; $i -lt $full; $i++) { [void]$sb.Append([char]0x2588) }      # full block
+    if ($half) { [void]$sb.Append("$esc[48;2;62;62;62m").Append([char]0x258C).Append("$esc[49m"); $full++ } # half block on track
     [void]$sb.Append("$esc[38;2;62;62;62m")
     for ($i = $full; $i -lt $cells; $i++) { [void]$sb.Append([char]0x2588) } # empty track
     return "$($sb.ToString())$esc[0m"
@@ -177,8 +186,11 @@ function Format-Countdown([double]$Seconds) {
 
 # --- read the payload ------------------------------------------------------
 
+# Decode stdin as UTF-8 explicitly: [Console]::In uses the console code page,
+# which garbles non-ASCII folder names and breaks the session file paths.
 if ([Console]::IsInputRedirected) {
-    $rawInput = [Console]::In.ReadToEnd()
+    $stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.UTF8Encoding]::new())
+    $rawInput = $stdin.ReadToEnd()
 } else {
     $rawInput = ''
 }
@@ -201,14 +213,19 @@ $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 $segments = [System.Collections.Generic.List[string]]::new()
 
+# Non-ASCII glyphs stay as escapes: see the note at the top of this file.
+$chart  = [char]::ConvertFromUtf32(0x1F4CA)   # bar chart emoji
+$folder = [char]::ConvertFromUtf32(0x1F4C1)   # folder emoji
+$sep    = [char]0x2502                        # box-drawing vertical bar
+
 # --- context window --------------------------------------------------------
 if ($null -ne $ctxPct) {
     $ctxLabel = Format-Percent ([double]$ctxPct)
     $bar = Render-Bar ([double]$ctxPct)
     if ($null -ne $ctxUsed -and $null -ne $ctxTotal) {
-        $segments.Add("📊 $bar $ctxLabel% ($(Format-K ([double]$ctxUsed))/$(Format-K ([double]$ctxTotal)))")
+        $segments.Add("$chart $bar $ctxLabel% ($(Format-K ([double]$ctxUsed))/$(Format-K ([double]$ctxTotal)))")
     } else {
-        $segments.Add("📊 $bar $ctxLabel%")
+        $segments.Add("$chart $bar $ctxLabel%")
     }
 }
 
@@ -253,7 +270,7 @@ if ($cacheAge -ge 0 -and $cacheAge -lt $UsableSeconds) {
 # --- working directory -----------------------------------------------------
 $dirName = Split-Path -Path $cwd -Leaf
 if ([string]::IsNullOrWhiteSpace($dirName)) { $dirName = $cwd }
-$segments.Add("📁 $dirName")
+$segments.Add("$folder $dirName")
 
 # --- generation speed of the latest model call -----------------------------
 # Droid's payload has no timing or output-token fields, so this reads the two
@@ -310,7 +327,7 @@ try {
     }
 } catch { }
 
-[Console]::Out.Write(($segments -join ' │ '))
+[Console]::Out.Write(($segments -join " $sep "))
 
 # --- refresh the cache in the background when it goes stale -----------------
 
