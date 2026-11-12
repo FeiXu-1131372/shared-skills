@@ -1,0 +1,154 @@
+/* A reading page. System fonts only, so it loads nothing and stays small, and each reader gets a good Chinese face.
+   Three views: English, 中文, and 中英对照 where each block sits beside its translation. With no script the page shows the view set at build time. */
+:root {
+  color-scheme: light dark;
+  --bg: #F5F7F4; --surface: #FFFFFF; --sunk: #E9EEE9; --ink: #17211D; --muted: #52615A; --line: #D5DDD7; --line-strong: #A9B7AF;
+  --accent: #14604F; --band: #10302A; --band-block: #1D4A40; --on-band: #EAF3EF; --on-band-muted: #B9CCC4; --pick: #BFE3D5; --on-pick: #10302A;
+  --est: #875608; --est-soft: #F8E9C8; --ran: #14604F; --ran-soft: #D8EEE5;
+  --f-cjk: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  --f-body: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, var(--f-cjk);
+  --f-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0F1513; --surface: #161F1B; --sunk: #1F2B26; --ink: #E7EFEA; --muted: #A9BAB2; --line: #2B3A33; --line-strong: #4C5F56;
+    --accent: #86D6BC; --band: #0B1E1A; --band-block: #173A32; --on-band: #E7EFEA; --on-band-muted: #A9BAB2; --pick: #86D6BC; --on-pick: #0B1E1A;
+    --est: #F1C670; --est-soft: #3A2C10; --ran: #86D6BC; --ran-soft: #17362D;
+  }
+}
+
+html[data-lang="zh"] .en { display: none !important; }
+html[data-lang="en"] .zh { display: none !important; }
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 66px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.65 var(--f-body); text-wrap: pretty; overflow-wrap: break-word; }
+/* The Chinese face comes first on the Chinese page, or curly quotes come out of the Latin face, narrow and cramped. */
+.zh { font-family: var(--f-cjk); line-height: 1.8; line-break: strict; }
+.wrap { max-width: 980px; margin-inline: auto; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px)); }
+
+/* The bar stays in reach on a long page. */
+.top { position: sticky; top: 0; z-index: 20; background: var(--band); color: var(--on-band); }
+.top-in { position: relative; display: flex; align-items: center; gap: 12px; min-height: 52px; }
+.brand { min-width: 0; flex: 1; color: inherit; text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .86; }
+.lang { display: flex; flex: none; margin-left: auto; gap: 2px; background: var(--band-block); border-radius: 999px; padding: 3px; }
+.lang button { appearance: none; border: 0; background: none; color: var(--on-band); font: 700 14px/1 var(--f-body); padding: 8px 12px; min-height: 34px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+@media (max-width: 420px) { .lang button { padding: 8px 9px; font-size: 13px; } .top-in { gap: 8px; } .menu summary { padding: 10px 11px; } }
+.lang button[aria-pressed="true"] { background: var(--pick); color: var(--on-pick); }
+.menu { flex: none; }
+.menu summary { list-style: none; cursor: pointer; font: 700 14px/1 var(--f-body); padding: 10px 13px; min-height: 34px; border-radius: 999px; background: var(--band-block); color: var(--on-band); }
+.menu summary::-webkit-details-marker { display: none; }
+.menu nav { position: absolute; top: calc(100% + 6px); left: 18px; width: min(440px, calc(100% - 36px)); max-height: calc(100vh - 80px); overflow-y: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .22); }
+.menu nav a { display: block; padding: 7px 8px; text-decoration: none; color: inherit; border-radius: 7px; line-height: 1.4; font-size: 15.5px; }
+.menu nav a span { display: block; }
+.menu nav a:hover { background: var(--sunk); }
+
+/* The opening. */
+.hero { background: var(--band); color: var(--on-band); padding: clamp(18px, 4vw, 40px) 0 clamp(26px, 5vw, 52px); }
+.hero h1 { margin: 0; font-size: clamp(30px, 4.8vw, 48px); line-height: 1.18; font-weight: 700; letter-spacing: -.01em; max-width: 24em; text-wrap: balance; }
+.hero h1.zh { line-height: 1.32; letter-spacing: 0; }
+.body { padding-top: clamp(22px, 4vw, 38px); padding-bottom: clamp(30px, 6vw, 60px); }
+.lede { font-size: clamp(17px, 2vw, 19px); }
+
+/* Reading width for prose, the full column for tables, code and figures. */
+.body p, .body ul, .body ol, .body blockquote, .body h2, .body h3, .body h4, .body h5, .body h6 { max-width: 42rem; }
+.body .zh p, .body .zh ul, .body .zh ol, .body .zh blockquote { max-width: 40rem; }
+section { margin-top: clamp(34px, 6vw, 56px); padding-top: clamp(22px, 4vw, 32px); border-top: 1px solid var(--line); }
+h2, h3, h4, h5, h6 { line-height: 1.28; text-wrap: balance; font-weight: 700; margin: 1.6em 0 .5em; }
+.zh h2, .zh h3, .zh h4 { line-height: 1.42; }
+section > .pair:first-child > div > :is(h1, h2, h3) { margin-top: 0; }
+h1 { font-size: clamp(25px, 3.6vw, 32px); }
+section > .pair:first-child > div > h1, h2 { font-size: clamp(24px, 3.4vw, 31px); color: var(--accent); }
+h3 { font-size: 20.5px; }
+h4 { font-size: 17.5px; }
+h5, h6 { font-size: 16px; color: var(--muted); }
+p { margin: 0 0 .85em; }
+ul, ol { margin: 0 0 1em; padding-left: 1.4em; }
+li { margin: .3em 0; }
+li p { margin-bottom: .45em; }
+li div > ul, li div > ol { margin: .25em 0 .4em; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--pick); outline-offset: 2px; border-radius: 6px; }
+strong { font-weight: 700; }
+img, svg { max-width: 100%; height: auto; }
+figure { margin: 1.4em 0; }
+figcaption { color: var(--muted); font-size: 15px; margin-top: 8px; }
+blockquote { margin: 0 0 1em; padding: 2px 0 2px 16px; border-left: 3px solid var(--line-strong); color: var(--muted); }
+blockquote p:last-child { margin-bottom: 0; }
+.box { color: var(--accent); font-size: 1.05em; }
+
+code { font-family: var(--f-mono); font-size: .86em; background: var(--sunk); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { margin: 0 0 1.1em; padding: 12px 14px; background: var(--sunk); border-radius: 10px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; white-space: pre; }
+
+/* Where a fact comes from. */
+.tag { display: inline-block; font-size: max(12.5px, .76em); font-weight: 700; line-height: 1.4; padding: 0 7px; border-radius: 6px; background: var(--sunk); color: var(--muted); overflow-wrap: anywhere; }
+.tag.est { background: var(--est-soft); color: var(--est); }
+.tag.ran { background: var(--ran-soft); color: var(--ran); }
+
+/* Tables. The wrapper scrolls only when a very wide table can't fit a desktop column. */
+.t-wrap { margin: 0 0 1.2em; overflow-x: auto; }
+.t { width: 100%; border-collapse: collapse; font-size: 15.5px; line-height: 1.5; }
+.zh .t { line-height: 1.65; }
+.t th, .t td { text-align: left; vertical-align: top; padding: 8px 12px 8px 0; border-top: 1px solid var(--line); min-width: 5em; }
+.t thead th { border-top: 0; border-bottom: 2px solid var(--line-strong); font-size: 14px; color: var(--muted); }
+.t tbody th { font-weight: 700; }
+.t .r { text-align: right; }
+.t .c { text-align: center; }
+
+/* On a phone a wide table becomes a stack of labelled rows, so nothing needs sideways scrolling. */
+@media (max-width: 640px) {
+  .t-wrap { overflow-x: visible; }
+  .t.many, .t.many tbody, .t.many tr, .t.many th, .t.many td { display: block; width: 100%; min-width: 0; }
+  .t.many thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .t.many tr { padding: 10px 0; border-top: 1px solid var(--line); }
+  .t.many tbody th, .t.many tbody td { border: 0; padding: 2px 0; text-align: left; }
+  .t.many tbody th { font-size: 16.5px; margin-bottom: 2px; }
+  .t.many td { display: grid; grid-template-columns: minmax(0, 36%) minmax(0, 1fr); gap: 0 10px; }
+  .t.many td::before { content: attr(data-l); font-size: 13px; font-weight: 700; color: var(--muted); line-height: 1.45; padding-top: 2px; }
+  .t.many td:empty { display: none; }
+  .t.two th, .t.two td { min-width: 0; }
+}
+
+.foot { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; padding: 18px 0 28px; }
+.foot p { margin: 0; max-width: 42rem; }
+.foot p + p { margin-top: .4em; }
+
+@media print {
+  .top { display: none; }
+  body { background: #fff; color: #000; font-size: 11.5pt; }
+  .hero { background: none; color: #000; padding: 0 0 12pt; }
+  a { color: inherit; }
+  section { break-inside: auto; }
+  h2, h3 { break-after: avoid; }
+  tr { break-inside: avoid; }
+}
+
+/* 中英对照. A pair is a block and its translation. On a wide screen the Chinese is on the left and the English on the right. On a narrow one the
+   English follows the Chinese and is set a little quieter, so each pair still reads as one unit. Tables, code and figures always stack. */
+html[data-lang="both"] .pair { display: grid; grid-template-columns: minmax(0, 1fr); }
+html[data-lang="both"] .brand .en, html[data-lang="both"] .menu summary .en { display: none; }
+@media (max-width: 560px) { html[data-lang="both"] .brand { display: none; } }
+html[data-lang="both"] .hero h1.en { margin-top: .5em; font-size: clamp(18px, 2.6vw, 26px); font-weight: 600; line-height: 1.3; opacity: .86; }
+html[data-lang="both"] .menu nav a .en { font-size: 13.5px; color: var(--muted); }
+html[data-lang="both"] li > .pair > .zh > :last-child { margin-bottom: .15em; }
+html[data-lang="both"] li > .pair > .en > :first-child { margin-top: 0; }
+html[data-lang="both"] .pair.stack > .zh > :last-child { margin-bottom: .4em; }
+html[data-lang="both"] .pair.stack > .en { color: var(--muted); }
+@media (max-width: 899px) {
+  html[data-lang="both"] .pair > .zh > :last-child { margin-bottom: .3em; }
+  html[data-lang="both"] .pair > .en > :first-child { margin-top: 0; }
+  html[data-lang="both"] .pair > .en { color: var(--muted); }
+  html[data-lang="both"] .pair > .en :is(h2, h3, h4, h5, h6) { color: inherit; }
+  html[data-lang="both"] .pair > .en > h2 { font-size: clamp(18px, 2.8vw, 23px); }
+  html[data-lang="both"] .pair > .en > h3 { font-size: 17.5px; }
+}
+@media (min-width: 900px) {
+  html[data-lang="both"] .wrap { max-width: 1240px; }
+  html[data-lang="both"] .body :is(p, ul, ol, blockquote, h2, h3, h4, h5, h6) { max-width: none; }
+  html[data-lang="both"] .pair:not(.stack) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 40px; }
+}
+
+/* Inline code in a title sits on the dark band, so it can't use the page's pale code colours. */
+.hero code, .top code { background: rgba(255, 255, 255, .16); color: inherit; }
