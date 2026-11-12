@@ -14,8 +14,24 @@ A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder contai
 | [`droid-rich-statusline`](./droid-rich-statusline/) | Installs the same style of status line for **Factory Droid**: context window % (from Droid's compaction meter), the Factory plan's 5h / weekly / monthly consumption with reset countdowns, the working directory, and the generation speed of the latest model call (tok/s). Works on macOS, Linux and Windows. |
 | [`release-claude-limits-gh`](./release-claude-limits-gh/) | Releases [`FeiXu-1131372/claude-switchboard`](https://github.com/FeiXu-1131372/claude-switchboard) from `main`: updates versions and changelog, waits for CI on the final commit, builds installers in a draft, and verifies assets and updater signatures. Keeps its historical skill name for existing invocations. Specific to that repo — copy & adapt for your own Tauri release flow. |
 | [`open-claude-here`](./open-claude-here/) | Windows only. Generates a "Open `<Backend>` Claude Here" Explorer right-click launcher for running Claude Code against an alternate Anthropic-API-compatible backend (GLM, Kimi, DeepSeek, MiniMax presets included, or a custom one) in whichever folder you right-clicked. |
+| [`bilingual-ebook-merger`](./bilingual-ebook-merger/) | Combines two single-language epubs of the same book (any language pair) into one bilingual epub that alternates a source paragraph with its translation. Aligns chapter by chapter with subagents, then validates the alignment and the built epub. Needs `beautifulsoup4` and `lxml`; `epubcheck` (with Java) is optional. |
+| [`gemini-image`](./gemini-image/) | Generates an image with **your own Gemini Pro subscription** by driving the signed-in Gemini web chat in a headless browser (no API key, no pop-up window) and saves the full-size file. Supports reference photos and several saved Google accounts. macOS, needs Chrome and the `agent-browser` CLI. |
+| [`human-cover-letter`](./human-cover-letter/) | Writes, rewrites or reviews a job cover letter so it is short, true, specific and sounds like one real person wrote it. Ships a pattern list of AI tells and two checkers (letter and CV). Defaults to New Zealand spelling and tone. Python standard library only. |
+| [`md-to-bilingual-page`](./md-to-bilingual-page/) | Turns a Markdown file plus its translation into one self-contained offline HTML page with an English / 中文 / side-by-side switch, checks that every number, date and hedge survived the translation, and checks the layout in a real browser. The checker's style rules (for example `你` not `您`) are one author's preferences; loosen them in `scripts/check_page.py`. |
+| [`rednote-replay-download`](./rednote-replay-download/) | Finds the playback URL of Xiaohongshu (Rednote) livestream replays, live streams, video notes and event pages through your own logged-in Chrome (`agent-browser`), then downloads with `yt-dlp` / `ffmpeg`. |
+| [`relay-api-check`](./relay-api-check/) | Tests a third-party LLM relay (base URL + key): auth, model list, Anthropic and OpenAI protocols, and whether real Claude Code and Codex calls work. Writes a report and remembers the endpoint in a local `chmod 600` env file. Python standard library only; instructions are partly in Chinese. |
+| [`view-md`](./view-md/) | Opens a local Markdown file in the browser as a clean, readable page, so long reports are easier to read than in the terminal. macOS (`open`); needs `markdown-it-py`. |
 
 The two statusline skills are siblings, not duplicates. Claude Code hands its rate limits to the script directly; Droid hands over nothing, so `droid-rich-statusline` ships a small background worker that reads the credential file and polls Factory's billing limits API into a cache. See that skill's `SKILL.md` for the full picture.
+
+### Read before you use
+
+Some of these automate other people's services. They are shared as working examples; what you do with them is on you.
+
+- `gemini-image` drives the Gemini consumer web app with your own login. That may not be covered by Google's terms for the app, and anything you type or attach (including reference photos) goes to Google. Use a spare profile if in doubt.
+- `rednote-replay-download` saves video the platform does not offer a download button for. Use it for your own content or content you have permission to keep, and follow the platform's terms. The page internals it reads can change without notice.
+- `relay-api-check` stores relay keys in a plaintext env file (mode 600) on your machine. Resellers of model access may breach the model vendors' terms; the skill only tests connectivity and does not take a view on that.
+- `bilingual-ebook-merger` is for people who already own both editions. It does not touch DRM.
 
 ## Installing a skill
 
