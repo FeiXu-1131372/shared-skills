@@ -1,0 +1,8 @@
+{
+  "name": "rich-agent-rows",
+  "version": "0.1.0",
+  "description": "Restyles Claude Code's subagent rows into aligned columns: model and effort, elapsed time, tokens, measured tok/s, task and current activity",
+  "author": { "name": "FeiXu-1131372" },
+  "license": "MIT",
+  "repository": "https://github.com/FeiXu-1131372/shared-skills"
+}

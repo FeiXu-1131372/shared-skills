@@ -19,7 +19,7 @@ Each segment is independent. The 5h / 7d segments are dropped silently when Clau
 
 **Visual encoding.** Bars are 5 cells wide (20% per cell) with a `▌` half block for the 10% step in between, rounded down (so 30% reads as `█▌░░░` rather than jumping from `█░░░░` to `██░░░`). The empty part is a flat dark-gray track (`░` in the samples here), and a half cell is the bar color on a track-colored background. Color is a smooth 24-bit gradient: pure green at 0%, yellow at 50%, pure red at 100%, interpolated linearly. Severity is glanceable from the hue alone — no need to read the number.
 
-**Subagent rows (optional, macOS / Linux).** The list of running subagents below the prompt normally shows only a name, a description and a token count. The skill can restyle those rows to match this line: agent type, model with its effort, elapsed time, tokens, tok/s and what the agent is doing right now. See "Subagent rows" below.
+**Subagent rows (optional).** The list of running subagents below the prompt normally shows only a name, a description and a token count. A small mod in this skill (`rich-agent-rows`, Claude Code 2.1.326+) restyles those rows to match this line, in aligned columns: model with its effort, elapsed time, tokens, measured tok/s, and the task with what the agent is doing right now. See "Subagent rows" below.
 
 ## When to use this skill
 
@@ -306,18 +306,55 @@ Then either restore the self-contained `statusline.sh` from `assets/statusline.s
 - Systems where you don't want background processes running for any reason (the daemon is ~0.1% CPU but it's still always-on).
 - The default `statusline.sh` already feels snappy — no need to add complexity.
 
-### Subagent rows (optional, macOS / Linux)
+### Subagent rows (optional)
 
-Claude Code's `subagentStatusLine` setting replaces the text of each row in the running-subagents list. It works like `statusLine`: a command that gets JSON on stdin and prints one JSON object per row. Sample rows (the elapsed time is colored green→red by age, over one hour):
+The list of running subagents under the prompt normally shows a name, a description and a token count. The skill can restyle each row to match the main line, in fixed-width columns so the dividers line up from row to row:
 
 ```
-general-purpose │ sonnet 5.5 (high) │ 19m14s │ ↓ 238.8k │ 412 tok/s │ Research 考刻 六亲验证方法 · 正在比对八卦加则
-general-purpose │ opus 5.5 (xhigh) │ 2h34m │ ↓ 118.1k │ S4 glossary + explain layer
+○ opus 5.5 · high    │ 43m09s │ ↓ 136.3k │   71 tok/s │ Merge the payments branch into main · Comparing the two lock files
+○ sonnet 5.5 · high  │  3m15s │ ↓ 122.8k │   77 tok/s │ Fix the login page audit findings · Running the browser tests
+○ haiku 5.5 · medium │     6s │ ↓   2.1k │    – tok/s │ Explore: Find where the config is read
 ```
 
-Needs Claude Code 2.1.293 or later for `agentType` (older versions fall back to the task name). Only worth offering if the user uses subagents; skip it otherwise.
+Only worth offering if the user uses subagents; skip it otherwise.
 
-#### Install
+#### Which way to install: the mod, not the setting
+
+There are two ways to draw these rows. Use the mod.
+
+| Claude Code | `subagentStatusLine` setting (old script) | `rich-agent-rows` mod |
+|---|---|---|
+| 2.1.293 to 2.1.322 | works | not available (no `AgentRow` hook) |
+| 2.1.323 to 2.1.325 | **removed**: rows always use the default look | not available |
+| 2.1.326 and later | back, but **deprecated** "in favor of mods": still works, warns at startup, will stop in a future release | works (checked on 2.1.330) |
+
+#### Install the mod (Claude Code 2.1.326 or later, any OS)
+
+At the prompt of a terminal session, type:
+
+```
+/plugin install rich-agent-rows --marketplace FeiXu-1131372/shared-skills
+```
+
+Answer `y` to add the marketplace, then pick a scope (user scope gives every session the rows). New sessions pick it up; restart the ones already open.
+
+If the user still has the old `subagentStatusLine` block in `~/.claude/settings.json`, remove it (the mod draws the rows by itself, and the setting only adds a script run on every refresh). If their main `statusLine` script was changed to print agent rows of its own while the setting was removed (2.1.323 to 2.1.325), turn that off too, or the agents show twice: once under the status line and once in Claude Code's own list.
+
+#### What each row shows
+
+The mod is one TypeScript file, `mod/rich-agent-rows/hooks/register.ts`. It hooks `ui.render` on `AgentRow` and sets the row's `body`; Claude Code keeps the row's bullet, its selection and opening or stopping the agent. Columns, left to right; the task goes last so a narrow terminal cuts it, not the numbers:
+
+- **Model · effort.** The model and effort of the agent's last request (`lastRequest`), else the ones it was started with. This is the effort actually sent, not a guess from settings.
+- **Elapsed time** since the agent started, colored green → red over one hour.
+- **Tokens** (`↓ 344.1k`): the agent's `tokenCount`.
+- **tok/s.** Measured, not estimated: the mod also hooks `turn.step` and, for each model request a subagent makes, divides its output tokens by the time from the first streamed piece to the end, pooling the last three requests (requests under 0.3 s are skipped). It is the same kind of figure as the main line's tok/s, and a big file read no longer shows as a spike. An agent waiting on a tool keeps its last figure; `–` means no request of it has been timed yet (also after the mod reloads).
+- **Type: task · activity.** The type is shown only when it isn't `general-purpose` (`Explore: …`). The activity (the agent's latest progress summary) is dimmed and left out when it only repeats the task.
+
+To change the layout, edit the width constants and `formatRow` at the top of `register.ts`. In a development session, `claude --plugin-dir <path>/mod/rich-agent-rows` loads a working copy, and `claude plugin validate <path>/mod/rich-agent-rows` type-checks it.
+
+#### Older Claude Code (2.1.293 to 2.1.322): the setting
+
+On those versions use the bash script instead (macOS / Linux):
 
 ```bash
 mkdir -p ~/.claude
@@ -340,20 +377,7 @@ Smoke test with a fake task (should print one JSON line with the model and effor
 echo '{"tasks":[{"id":"t1","agentType":"general-purpose","status":"running","description":"demo","label":"Running tests","startTime":'"$(( $(date +%s) * 1000 - 65000 ))"',"model":"claude-opus-5-5","tokenCount":120000}]}' | bash ~/.claude/subagent-statusline.sh
 ```
 
-Then restart Claude Code (Step 5). The setting is subject to the same trust and `disableAllHooks` / `allowManagedHooksOnly` rules as `statusLine`.
-
-#### What each row shows
-
-Segments are dropped when their field is missing, and the description goes last so a narrow terminal clips it rather than the numbers.
-
-- **Agent type** (`agentType`, else `name`).
-- **Model and effort.** The model id is shortened (`claude-sonnet-5-5` → `sonnet 5.5`). Claude Code sends `effort` only when the agent set one itself, and it is normally `null`. In that case the script shows what `~/.claude/settings.json` would give the model (`modelSettings.<id>.effortLevel`, else `effortLevel`) in **dim brackets** to mark it as inferred. It is wrong if an agent's own frontmatter overrides the effort, and a model with no `modelSettings` entry gets the global value even if it has no effort levels.
-- **Elapsed time** from `startTime` (epoch ms, epoch seconds or ISO), colored with the same gradient as the bars.
-- **Tokens** (`↓ 238.8k`), from `tokenCount`.
-- **tok/s.** Claude Code gives only a running token total, so the speed is the growth of `tokenCount` over a window of at least 5 s, kept in `~/.claude/subagent-speed/<task id>` (files older than a day are pruned). `tokenCount` also grows when a tool result lands in the agent's context, so a big file read can look like a spike; windows above 3000 tok/s are ignored and the previous figure stays. Nothing is shown until the first window is measured, or while the count isn't moving.
-- **Description · activity.** `description` is the task name; `label` is what the agent is doing now, dimmed.
-
-The script also saves its raw stdin to `~/.claude/subagent_statusline_snapshot.json`, which is the quickest way to check field shapes if a row looks wrong. The Windows install has no subagent script yet.
+Its rows differ from the mod's in three ways: columns are not padded, so the dividers don't line up; the effort is often inferred from `settings.json` and shown in dim brackets; and tok/s is the growth of `tokenCount` over a 5 s window, which also grows when a tool result lands, so big file reads show as spikes (windows above 3000 tok/s are ignored). It saves its raw stdin to `~/.claude/subagent_statusline_snapshot.json`. The setting is subject to the same trust and `disableAllHooks` / `allowManagedHooksOnly` rules as `statusLine`.
 
 ### Step 5 (both platforms) — Reload
 

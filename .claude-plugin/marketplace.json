@@ -1,0 +1,14 @@
+{
+  "name": "shared-skills",
+  "description": "Claude Code mods from FeiXu-1131372/shared-skills",
+  "owner": {
+    "name": "FeiXu-1131372"
+  },
+  "plugins": [
+    {
+      "name": "rich-agent-rows",
+      "source": "./claude-rich-statusline/mod/rich-agent-rows",
+      "description": "Aligned subagent rows for Claude Code: model and effort, elapsed time, tokens, measured tok/s, task and activity"
+    }
+  ]
+}
