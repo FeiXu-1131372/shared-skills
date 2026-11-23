@@ -11,6 +11,7 @@ A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder contai
 | Skill | What it does |
 |---|---|
 | [`claude-rich-statusline`](./claude-rich-statusline/) | Installs a feature-rich **Claude Code** status line showing context window %, 5h + weekly rate-limit consumption with reset countdowns, model with its reasoning effort, working directory, git branch, and the generation speed of the latest response (tok/s). Optionally restyles the subagent rows with each agent's model, effort, elapsed time, tokens and tok/s. |
+| [`codex-rich-statusline`](./codex-rich-statusline/) | Installs a rich **Codex CLI** footer through a local MCP provider. Shows colored context, 5h and weekly usage with reset countdowns, model and reasoning effort, directory, Git branch, and permissions. |
 | [`droid-rich-statusline`](./droid-rich-statusline/) | Installs the same style of status line for **Factory Droid**: context window % (from Droid's compaction meter), the Factory plan's 5h / weekly / monthly consumption with reset countdowns, the working directory, and the generation speed of the latest model call (tok/s). Works on macOS, Linux and Windows. |
 | [`release-claude-limits-gh`](./release-claude-limits-gh/) | Releases [`FeiXu-1131372/claude-switchboard`](https://github.com/FeiXu-1131372/claude-switchboard) from `main`: updates versions and changelog, waits for CI on the final commit, builds installers in a draft, and verifies assets and updater signatures. Keeps its historical skill name for existing invocations. Specific to that repo — copy & adapt for your own Tauri release flow. |
 | [`open-claude-here`](./open-claude-here/) | Windows only. Generates a "Open `<Backend>` Claude Here" Explorer right-click launcher for running Claude Code against an alternate Anthropic-API-compatible backend (GLM, Kimi, DeepSeek, MiniMax presets included, or a custom one) in whichever folder you right-clicked. |
@@ -22,7 +23,7 @@ A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder contai
 | [`relay-api-check`](./relay-api-check/) | Tests a third-party LLM relay (base URL + key): auth, model list, Anthropic and OpenAI protocols, and whether real Claude Code and Codex calls work. Writes a report and remembers the endpoint in a local `chmod 600` env file. Python standard library only; instructions are partly in Chinese. |
 | [`view-md`](./view-md/) | Opens a local Markdown file in the browser as a clean, readable page, so long reports are easier to read than in the terminal. macOS (`open`); needs `markdown-it-py`. |
 
-The two statusline skills are siblings, not duplicates. Claude Code hands its rate limits to the script directly; Droid hands over nothing, so `droid-rich-statusline` ships a small background worker that reads the credential file and polls Factory's billing limits API into a cache. See that skill's `SKILL.md` for the full picture.
+Claude Code passes rate limits to its status line script. Codex includes available limits in the thread snapshot it sends to the MCP provider. Factory Droid uses a background worker that reads its credential file and caches usage from Factory's billing limits API.
 
 ### Read before you use
 
