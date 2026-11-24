@@ -3,8 +3,10 @@
 import json
 import os
 from pathlib import Path
+from queue import Empty, SimpleQueue
 import subprocess
 import sys
+from threading import Thread
 import time
 
 
@@ -24,6 +26,9 @@ SEPARATOR = " │ "
 branch_cwd = None
 branch_name = ""
 branch_expires_at = 0.0
+branch_pending = False
+branch_requests = SimpleQueue()
+branch_results = SimpleQueue()
 
 
 def colored(value, color=TEXT):
@@ -71,26 +76,40 @@ def find_git():
 GIT = find_git()
 
 
-def current_branch(cwd):
-    global branch_cwd, branch_name, branch_expires_at
-    if GIT is None:
-        return ""
-    now = time.monotonic()
-    if cwd != branch_cwd or now >= branch_expires_at:
-        branch_cwd = cwd
-        branch_expires_at = now + 5
-        branch_name = ""
+def refresh_branches():
+    while True:
+        cwd = branch_requests.get()
+        name = ""
         try:
             result = subprocess.run(
                 [GIT, "branch", "--show-current"], cwd=cwd, capture_output=True,
-                timeout=0.3, encoding="utf-8", errors="replace",
+                timeout=3, encoding="utf-8", errors="replace",
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode == 0:
-                branch_name = result.stdout.strip()
+                name = result.stdout.strip()
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
-    return branch_name
+        branch_results.put((cwd, name, time.monotonic() + 5))
+
+
+def current_branch(cwd):
+    global branch_cwd, branch_name, branch_expires_at, branch_pending
+    if GIT is None:
+        return ""
+
+    # Git process creation and cleanup can outlast the MCP read deadline.
+    if branch_pending:
+        try:
+            branch_cwd, branch_name, branch_expires_at = branch_results.get_nowait()
+        except Empty:
+            pass
+        else:
+            branch_pending = False
+    if not branch_pending and (cwd != branch_cwd or time.monotonic() >= branch_expires_at):
+        branch_requests.put(cwd)
+        branch_pending = True
+    return branch_name if cwd == branch_cwd else ""
 
 
 def short_path(cwd):
@@ -201,6 +220,8 @@ def respond(method, params):
 
 
 def main():
+    if GIT is not None:
+        Thread(target=refresh_branches, name="statusline-git", daemon=True).start()
     for line in sys.stdin.buffer:
         reply = {"jsonrpc": "2.0", "id": None}
         try:
