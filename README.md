@@ -4,7 +4,7 @@ A small collection of reusable AI coding agent skills.
 
 ## What's a skill?
 
-A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder containing a `SKILL.md` (with YAML frontmatter describing when to trigger and what to do) plus optional bundled scripts and assets. Agents load skill metadata at session start and pull in the body when relevant prompts come in. The format is shared: Claude Code reads `~/.claude/skills`, Factory Droid reads `~/.factory/skills`.
+A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder containing a `SKILL.md` (with YAML frontmatter describing when to trigger and what to do) plus optional bundled scripts and assets. Agents load skill metadata at session start and pull in the body when relevant prompts come in. The format is shared: Claude Code reads `~/.claude/skills`, Google Antigravity reads `~/.gemini/config/skills` (and `~/.agents/skills`), Factory Droid reads `~/.factory/skills`.
 
 ## Skills in this repo
 
@@ -13,6 +13,7 @@ A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder contai
 | [`claude-rich-statusline`](./claude-rich-statusline/) | Installs a feature-rich **Claude Code** status line showing context window %, 5h + weekly rate-limit consumption with reset countdowns, model with its reasoning effort, working directory, git branch, and the generation speed of the latest response (tok/s). Optionally restyles the subagent rows into aligned columns (model and effort, elapsed time, tokens, measured tok/s) with a small mod: `/plugin install rich-agent-rows --marketplace FeiXu-1131372/shared-skills` (Claude Code 2.1.326+). |
 | [`codex-rich-statusline`](./codex-rich-statusline/) | Installs a rich **Codex CLI** footer through a local MCP provider. Shows colored context, 5h and weekly usage with reset countdowns, model and reasoning effort, directory, Git branch, and permissions. |
 | [`droid-rich-statusline`](./droid-rich-statusline/) | Installs the same style of status line for **Factory Droid**: context window % (from Droid's compaction meter), the Factory plan's 5h / weekly / monthly consumption with reset countdowns, the working directory, and the generation speed of the latest model call (tok/s). Works on macOS, Linux and Windows. |
+| [`agy-rich-statusline`](./agy-rich-statusline/) | Installs the same style of status line for **Google Antigravity CLI (`agy`)**: context window %, 1P Gemini + 3P model quota buckets with reset countdowns, model with deduplicated reasoning effort, directory, VCS branch + dirty marker, active subagents, session cost, and latest response tok/s. Works on macOS, Linux and Windows. |
 | [`release-claude-limits-gh`](./release-claude-limits-gh/) | Releases [`FeiXu-1131372/claude-switchboard`](https://github.com/FeiXu-1131372/claude-switchboard) from `main`: updates versions and changelog, waits for CI on the final commit, builds installers in a draft, and verifies assets and updater signatures. Keeps its historical skill name for existing invocations. Specific to that repo — copy & adapt for your own Tauri release flow. |
 | [`open-claude-here`](./open-claude-here/) | Windows only. Generates a "Open `<Backend>` Claude Here" Explorer right-click launcher for running Claude Code against an alternate Anthropic-API-compatible backend (GLM, Kimi, DeepSeek, MiniMax presets included, or a custom one) in whichever folder you right-clicked. |
 | [`bilingual-ebook-merger`](./bilingual-ebook-merger/) | Combines two single-language epubs of the same book (any language pair) into one bilingual epub that alternates a source paragraph with its translation. Aligns chapter by chapter with subagents, then validates the alignment and the built epub. Needs `beautifulsoup4` and `lxml`; `epubcheck` (with Java) is optional. |
@@ -23,7 +24,7 @@ A [skill](https://docs.claude.com/en/docs/claude-code/skills) is a folder contai
 | [`relay-api-check`](./relay-api-check/) | Tests a third-party LLM relay (base URL + key): auth, model list, Anthropic and OpenAI protocols, and whether real Claude Code and Codex calls work. Writes a report and remembers the endpoint in a local `chmod 600` env file. Python standard library only; instructions are partly in Chinese. |
 | [`view-md`](./view-md/) | Opens a local Markdown file in the browser as a clean, readable page, so long reports are easier to read than in the terminal. macOS (`open`); needs `markdown-it-py`. |
 
-Claude Code passes rate limits to its status line script. Codex includes available limits in the thread snapshot it sends to the MCP provider. Factory Droid uses a background worker that reads its credential file and caches usage from Factory's billing limits API.
+Claude Code passes rate limits to its status line script. Google Antigravity passes model quota buckets, VCS state, subagents and cost directly in its `StatusLineData` JSON. Codex includes available limits in the thread snapshot it sends to the MCP provider. Factory Droid uses a background worker that reads its credential file and caches usage from Factory's billing limits API.
 
 ### Read before you use
 
@@ -48,6 +49,9 @@ ln -s ~/dev/shared-skills/claude-rich-statusline ~/.claude/skills/claude-rich-st
 
 # Factory Droid
 ln -s ~/dev/shared-skills/droid-rich-statusline ~/.factory/skills/droid-rich-statusline
+
+# Google Antigravity
+ln -s ~/dev/shared-skills/agy-rich-statusline ~/.gemini/config/skills/agy-rich-statusline
 ```
 
 Restart the agent. The skill will appear in the available-skills list and trigger on its description match.

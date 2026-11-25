@@ -1,0 +1,14 @@
+[Unit]
+Description=Antigravity CLI (agy) statusline background recomputation
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/.gemini/antigravity-cli/statusline-daemon.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
