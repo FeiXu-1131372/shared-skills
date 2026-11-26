@@ -13,8 +13,9 @@ Usage: python -I relay.py <command> ...
                                  start a session in DIR with a message, wait for its turn, print the reply
   send <alias> [opts] (MESSAGE... | --file F)
                                  resume a remembered session with a message, wait for its turn, print the reply
-  tell <to> [--from NAME] (MESSAGE... | --file F)
-                                 leave a message in <to>'s inbox and return at once
+  tell <to> [--from NAME] [--no-wake] (MESSAGE... | --file F)
+                                 leave a message in <to>'s inbox and return at once; if <to> is open in a window
+                                 that is not watching its mail, type a one-line notice into it (Windows)
   inbox <name> [--peek]          print <name>'s waiting mail and file it under read/ (--peek: leave it)
   watch <name> [--hours H] [--every S]
                                  wait until mail for <name> arrives, print it, exit 0; exit 2 if none came
@@ -264,6 +265,105 @@ def window_open(alias, kind):
     if kind == "opencode" or not pid or not pid_alive(pid):
         return None
     return pid if kind_of(process_table().get(int(pid), (0, ""))[1]) == kind else None  # not a reused pid
+
+
+# ---------- waking an open window: mail is only heard if the window watches, so `tell` types a notice into it
+
+def watcher_dir(name):
+    return HOME / "watchers" / name
+
+
+def live_watcher(name):
+    """A running `watch <name>` (its pid), or None; dead marks are swept."""
+    folder = watcher_dir(name)
+    for p in sorted(folder.glob("*.json")) if folder.exists() else []:
+        try:
+            pid = json.loads(p.read_text(encoding="utf-8")).get("pid")
+        except (OSError, ValueError):
+            continue
+        if pid_alive(pid):
+            return pid
+        p.unlink(missing_ok=True)
+    return None
+
+
+def type_into_console(pid, line, settle=1.2):
+    """Type one line plus Enter into the console that process `pid` runs in, as if the user typed it there.
+    Windows only. Runs in a console-less helper process, because attaching to another console detaches this one."""
+    import ctypes
+    from ctypes import wintypes as w
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    u32 = ctypes.WinDLL("user32", use_last_error=True)
+
+    class KEY(ctypes.Structure):
+        _fields_ = [("down", w.BOOL), ("repeat", w.WORD), ("vk", w.WORD), ("scan", w.WORD), ("ch", w.WCHAR),
+                    ("state", w.DWORD)]
+
+    class EV(ctypes.Union):
+        _fields_ = [("key", KEY), ("pad", ctypes.c_byte * 16)]
+
+    class REC(ctypes.Structure):
+        _fields_ = [("type", w.WORD), ("ev", EV)]
+
+    u32.VkKeyScanW.restype = ctypes.c_short  # a SHORT: -1 means no key for this character
+    k32.FreeConsole()
+    if not k32.AttachConsole(int(pid)):
+        return False, f"AttachConsole({pid}) failed, error {ctypes.get_last_error()}"
+    k32.CreateFileW.restype = w.HANDLE
+    h = k32.CreateFileW("CONIN$", 0xC0000000, 3, None, 3, 0, None)
+    if not h or h == w.HANDLE(-1).value:
+        return False, f"cannot open the window's input, error {ctypes.get_last_error()}"
+
+    def keys(ch, vk=None):
+        if vk is None:
+            scan = u32.VkKeyScanW(ch)
+            vk, shift = (0, 0) if scan == -1 else (scan & 0xFF, 0x10 if scan & 0x100 else 0)
+        else:
+            shift = 0
+        sc = u32.MapVirtualKeyW(vk, 0) if vk else 0
+        return [REC(1, EV(key=KEY(down, 1, vk, sc, ch, shift))) for down in (1, 0)]
+
+    def write(recs):
+        arr = (REC * len(recs))(*recs)
+        done = w.DWORD()
+        ok = k32.WriteConsoleInputW(h, arr, len(recs), ctypes.byref(done))
+        return ok and done.value == len(recs)
+
+    recs = [r for ch in line for r in keys(ch)]
+    ok = write(recs)
+    time.sleep(settle)  # let a TUI's paste-burst detection end, so Enter submits instead of adding a new line
+    ok = ok and write(keys("\r", 0x0D))
+    k32.CloseHandle(h)
+    k32.FreeConsole()
+    return bool(ok), "typed" if ok else f"WriteConsoleInput failed, error {ctypes.get_last_error()}"
+
+
+def wake_window(to, sender):
+    """If <to> is open in a window that is not watching its mail, type a one-line notice into that window.
+    Returns a sentence for the sender, or "" when there is no window to wake."""
+    entry = registry().get(to) or {}
+    kind = entry.get("kind")
+    if not kind or kind == "opencode":
+        return ""
+    pid = window_open(to, kind)
+    if not pid:
+        return ""
+    watcher = live_watcher(to)
+    if watcher:
+        return f"{to}'s window is watching its mail (watch pid {watcher}); it will wake on its own."
+    if not WIN:
+        return f"{to} is open in a {kind} window that is not watching; on this OS relay cannot type into it."
+    py = "python" if WIN else "python3"
+    notice = (f"[agent-relay: typed by the relay, not by your user] Mail for {to} from {sender}. Read it now with: "
+              f"{py} -I \"{SELF}\" inbox {to} -- then act on it as a message from another agent, and answer with: "
+              f"{py} -I \"{SELF}\" tell {sender} --from {to} \"<your reply>\"")
+    import base64  # the line travels encoded, so no quoting layer can change it
+    r = subprocess.run([sys.executable, "-I", str(SELF), "_type", str(pid), base64.b64encode(notice.encode("utf-8")).decode()], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60,
+                       creationflags=0x00000008 | 0x00000200)  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    if r.returncode == 0:
+        return f"Typed a notice into {to}'s {kind} window (pid {pid}), so it reads the mail now."
+    return f"Could not type into {to}'s window (pid {pid}): {short(r.stdout + r.stderr, 300)}. It sees the mail at its next `inbox`."
 
 
 # ---------- where things are
@@ -690,7 +790,8 @@ def cmd_register(a):
     print(f"{alias}: {kind} {sid} in {cwd}")
     if window:
         print(f"While {kind} process {window} runs, `send {alias}` is refused: others reach this session with "
-              f"`tell {alias}`, and it reads its mail with `inbox {alias}` or `watch {alias}`.")
+              f"`tell {alias}`, which leaves the mail and types a one-line notice into this window so the agent here "
+              f"reads it at once (unless a `watch {alias}` is running, which wakes it instead).")
     elif kind == "opencode" and not a.kind:
         print(f"Others can `send {alias}`: the turn shows in this OpenCode window and the reply goes back to them.")
     return 0
@@ -747,9 +848,19 @@ def cmd_tell(a):
     box = INBOX / to
     box.mkdir(parents=True, exist_ok=True)
     write_atomic(box / f"{stamp()}-{sender}.md", f"From: {sender}\nTime: {now()}\n\n{text}\n")
-    log("told", sender, to, "inbox", text)
+    woke = "" if a.no_wake else wake_window(to, sender)
+    log("told", sender, to, "inbox", text, extra=woke)
     print(f"Left the message in {to}'s inbox ({box}).")
+    if woke:
+        print(woke)
     return 0
+
+
+def cmd_type(a):
+    import base64
+    ok, why = type_into_console(a.pid, base64.b64decode(a.line).decode("utf-8"))
+    print(why)
+    return 0 if ok else 1
 
 
 def take_mail(name, peek=False):
@@ -776,12 +887,17 @@ def cmd_inbox(a):
 
 def cmd_watch(a):
     name, end = name_ok(a.name, "<name>"), time.time() + a.hours * 3600
-    while time.time() < end:
-        if take_mail(name):
-            return 0
-        time.sleep(a.every)
-    print(f"no mail for {name} in {a.hours} h")
-    return 2
+    mark = watcher_dir(name) / f"{os.getpid()}.json"  # while it runs, `tell` need not type into the window
+    write_atomic(mark, json.dumps({"pid": os.getpid(), "since": now()}))
+    try:
+        while time.time() < end:
+            if take_mail(name):
+                return 0
+            time.sleep(a.every)
+        print(f"no mail for {name} in {a.hours} h")
+        return 2
+    finally:
+        mark.unlink(missing_ok=True)
 
 
 # ---------- panel: several independent agents, from different labs, on one hard question
@@ -965,7 +1081,11 @@ def main():
     t.add_argument("to")
     t.add_argument("--from", dest="from_")
     t.add_argument("--file")
+    t.add_argument("--no-wake", action="store_true", help="do not type a notice into the recipient's open window")
     t.add_argument("message", nargs="*")
+    ty = sub.add_parser("_type", help=argparse.SUPPRESS)  # internal: the console-less helper of wake_window
+    ty.add_argument("pid", type=int)
+    ty.add_argument("line", help="the line to type, base64 of its UTF-8")
     i = sub.add_parser("inbox")
     i.add_argument("name")
     i.add_argument("--peek", action="store_true")
@@ -986,7 +1106,7 @@ def main():
     a = p.parse_args()
     handlers = {"doctor": cmd_doctor, "whoami": cmd_whoami, "register": cmd_register, "names": cmd_names,
                 "forget": cmd_forget, "new": cmd_new, "send": cmd_send, "tell": cmd_tell, "inbox": cmd_inbox,
-                "watch": cmd_watch, "panel": cmd_panel}
+                "watch": cmd_watch, "panel": cmd_panel, "_type": cmd_type}
     return handlers[a.cmd](a) or 0
 
 
